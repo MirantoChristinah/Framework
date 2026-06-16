@@ -3,7 +3,7 @@ To do FrameWork :
                 manome (localhost/../ url_Saisie)  
         - FrontControllerServlet[ok]
             -doget et Dopost -> miantso ProcessRequest()->out.print(Url) 
-        - script de deploiement .jar (convertis le framewok en .jar) 
+        - script de deploiement .jar (convertis le framewok en .jar) [ok]
         - Faire des test utiliser (le .jar dans le Test ) 
 
         Spring mvc , web api 
