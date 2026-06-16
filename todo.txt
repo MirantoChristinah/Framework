@@ -1,0 +1,28 @@
+To do FrameWork : 
+    Sprint0 : but n 'import quel url saisie dans le test mandalo function processRequest de 
+                manome (localhost/../ url_Saisie)  
+        - FrontControllerServlet 
+            -doget et Dopost -> miantso ProcessRequest()->out.print(Url) 
+        - script de deploiement .jar (convertis le framewok en .jar) 
+        - Faire des test utiliser (le .jar dans le Test ) 
+
+        Spring mvc , web api 
+        controlleur ,
+        class EmpController annoter 
+         @Controller
+            @getmapping
+         methode lister
+         
+        (@requestmapping)  
+
+        MedelAndView 
+
+        test class controller noter par notre propre annotation , 
+
+       ** mianatra  annotation , creation d'un annotation , recuperation , existance (class ,methode ,attribut fomba ametrahana annotation ) mila package (otrany package fa special fotsiny ny annotation ) inon daoly ny variable ilaina aminy 
+
+       ao projet de test : creation de du annotation , place , aiza , comment , test dans une class et main  => au moment du annotation 
+
+
+
+
