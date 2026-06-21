@@ -1,0 +1,15 @@
+ul mandeha de fatatra ny methode sy controlleur asocier url iny 
+creeation annotion type type , 
+mila variable 
+
+@controlleur
+class EmpCOntroller 
+
+url="emp/list
+@urlmapping ('/emp/list')
+liste(){  }
+
+/emp/list
+/emp/new EmpController->create 
+
+rehefa tsy fatatra dia asina throw oe tsy fatatra le url 
