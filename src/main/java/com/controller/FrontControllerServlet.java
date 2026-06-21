@@ -77,7 +77,7 @@ public class FrontControllerServlet extends HttpServlet {
             out.println("<p>URL saisie detectee : <strong>" + urlSaisie + "</strong></p>");
             
             // Affichage des contrôleurs détectés pour le debug du Sprint 1
-            out.println("<h3>Contrôleurs détectés avec @AnnotationController :</h3>");
+            out.println("<h3>Controleurs détectes avec @AnnotationController :</h3>");
             out.println("<ul>");
             for (String controller : listController) {
                 out.println("<li>" + controller + "</li>");
