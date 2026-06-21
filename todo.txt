@@ -24,7 +24,7 @@ To do FrameWork :
 
        ao projet de test : creation de du annotation , place , aiza , comment , test dans une class et main  => au moment du annotation 
 
-    *Sprint1: but : creation de notre propre annotation :
+    *Sprint1: but : creation de notre propre annotation : [ok]
         on a deux choix donc dans un bout de code : 
             -utiliser au demarrage du application (utiliser listener )
             ou - au premiere applle frontControllerServlet(on uilisant init)
