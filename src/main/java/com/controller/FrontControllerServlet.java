@@ -1,6 +1,5 @@
 package com.controller;
 
-import com.annotation.Controller;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
@@ -56,8 +55,8 @@ public class FrontControllerServlet extends HttpServlet {
                         String className = packageName + "." + file.getName().substring(0, file.getName().length() - 6);
                         Class<?> cls = Class.forName(className);
 
-                        // 3. Vérifier si la classe possède l'annotation @Controller
-                        if (cls.isAnnotationPresent(Controller.class)) {
+                        // 3. VÉRIFICATION CORRIGÉE : Utilisation de AnnotationController.class
+                        if (cls.isAnnotationPresent(AnnotationController.class)) {
                             listController.add(cls.getName());
                         }
                     }
@@ -78,7 +77,7 @@ public class FrontControllerServlet extends HttpServlet {
             out.println("<p>URL saisie detectee : <strong>" + urlSaisie + "</strong></p>");
             
             // Affichage des contrôleurs détectés pour le debug du Sprint 1
-            out.println("<h3>Contrôleurs détectés avec @Controller :</h3>");
+            out.println("<h3>Contrôleurs détectés avec @AnnotationController :</h3>");
             out.println("<ul>");
             for (String controller : listController) {
                 out.println("<li>" + controller + "</li>");
