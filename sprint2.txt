@@ -1,4 +1,4 @@
-ul mandeha de fatatra ny methode sy controlleur asocier url iny 
+url mandeha de fatatra ny methode sy controlleur asocier url iny 
 creeation annotion type type , 
 mila variable 
 
