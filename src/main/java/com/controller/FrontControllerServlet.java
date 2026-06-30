@@ -12,11 +12,12 @@ import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.HashMap;
+import java.util.Map;
 
 public class FrontControllerServlet extends HttpServlet {
 
     // Changement ici : La clé est maintenant un objet UrlMethod
-    private HashMap<UrlMethod, Mapping> mappingUrls = new HashMap<>();
+    private Map<UrlMethod, Mapping> mappingUrls = new HashMap<>();
 
     @Override
     public void init(ServletConfig config) throws ServletException {

@@ -35,7 +35,7 @@ To do FrameWork :
                         -parcours 
 
 
-    *Sprint3 : but : le url saisie a une method post et get , on doit donc savoir sa methode si c 'est post ou get pour les methode (fonction) lors de ses execution dans le Controller 
+    *Sprint3 : but : le url saisie a une method post et get , on doit donc savoir sa methode si c 'est post ou get pour les methode (fonction) lors de ses execution dans le Controller [ok]
         - dans la class UrlMapping : ajouter l 'attribut method ; Les method sont get ou post
         - creation du class UrlMethod : URL , method(get/post)
         - dans la class Mapping.java : Nomclass , method(fonction)
@@ -43,7 +43,7 @@ To do FrameWork :
         du coup : -on a un test Controller et un url test (on a pas le dois de faire cela)
                     - Utiliser Map<url , > , map deviens une instance du Url method
                     - utiliser , equals et hascote pour map pour gerer les fonction qui on la meme methode
-        
+    Miantso methodeContentski de ra true de throws exception 
 
     Test : any anaty le classMetod , mitovy ny class :  
 
