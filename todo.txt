@@ -35,4 +35,24 @@ To do FrameWork :
                         -parcours 
 
 
+    *Sprint3 : but : le url saisie a une method post et get , on doit donc savoir sa methode si c 'est post ou get pour les methode (fonction) lors de ses execution dans le Controller 
+        - dans la class UrlMapping : ajouter l 'attribut method ; Les method sont get ou post
+        - creation du class UrlMethod : URL , method(get/post)
+        - dans la class Mapping.java : Nomclass , method(fonction)
+        - mettre une Exception si les fonction on la meme method 
+        du coup : -on a un test Controller et un url test (on a pas le dois de faire cela)
+                    - Utiliser Map<url , > , map deviens une instance du Url method
+                    - utiliser , equals et hascote pour map pour gerer les fonction qui on la meme methode
+        
 
+    Test : any anaty le classMetod , mitovy ny class :  
+
+    *Sprint3Bis : 
+    on appelle le method et on recupere le method et on l' invoke , on verifie dans le console qu 'on la appelle 
+    quand on conait la method executer (invoke) sans creer l 'instance (dans le Processrequest)
+
+    *SprintSpecial : 
+        - implementation du context listener : init() premier appelle , 
+        au demarrage du application le demmarge efa 
+        listener , filter , servelet 
+        - 
