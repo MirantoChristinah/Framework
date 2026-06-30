@@ -15,19 +15,16 @@ import java.util.HashMap;
 
 public class FrontControllerServlet extends HttpServlet {
 
-    // Table de hachage associant une URL saisie à son Mapping (Contrôleur + Méthode)
-    private HashMap<String, Mapping> mappingUrls = new HashMap<>();
+    // Changement ici : La clé est maintenant un objet UrlMethod
+    private HashMap<UrlMethod, Mapping> mappingUrls = new HashMap<>();
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        
-        // 1. Récupérer le paramètre du web.xml
         String packageToScan = config.getInitParameter("packageControllers");
         
         if (packageToScan != null && !packageToScan.trim().isEmpty()) {
             try {
-                // 2. Parcourir et scanner le package racine
                 scanPackage(packageToScan);
             } catch (Exception e) {
                 throw new ServletException("Erreur lors du scan du package : " + packageToScan, e);
@@ -35,44 +32,46 @@ public class FrontControllerServlet extends HttpServlet {
         }
     }
 
-    private void scanPackage(String packageName) throws ClassNotFoundException {
+    private void scanPackage(String packageName) throws ClassNotFoundException, DuplicateUrlException {
         String path = packageName.replace('.', '/');
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         URL resource = classLoader.getResource(path);
 
-        if (resource == null) {
-            return;
-        }
+        if (resource == null) return;
 
         File directory = new File(resource.getFile());
         if (directory.exists()) {
             File[] files = directory.listFiles();
             if (files != null) {
                 for (File file : files) {
-                    // Si c'est un sous-dossier, on descend dedans récursivement
                     if (file.isDirectory()) {
                         scanPackage(packageName + "." + file.getName());
-                    } 
-                    // Si c'est un fichier .class, on l'analyse
-                    else if (file.getName().endsWith(".class")) {
+                    } else if (file.getName().endsWith(".class")) {
                         String className = packageName + "." + file.getName().substring(0, file.getName().length() - 6);
                         Class<?> cls = Class.forName(className);
 
-                        // On vérifie si la classe possède l'annotation @AnnotationController
                         if (cls.isAnnotationPresent(AnnotationController.class)) {
-                            
-                            // On inspecte toutes les méthodes de cette classe
                             Method[] methods = cls.getDeclaredMethods();
                             for (Method method : methods) {
                                 
-                                // Si la méthode possède l'annotation @UrlMapping
                                 if (method.isAnnotationPresent(UrlMapping.class)) {
                                     UrlMapping urlMapping = method.getAnnotation(UrlMapping.class);
-                                    String urlValue = urlMapping.value(); // Récupère la valeur via value()
+                                    
+                                    // 1. On extrait l'URL et la méthode HTTP (GET/POST)
+                                    String urlValue = urlMapping.value();
+                                    String httpMethod = urlMapping.method().toUpperCase();
 
-                                    // On crée le Mapping et on l'enregistre dans la Map
+                                    // 2. On instancie la clé UrlMethod
+                                    UrlMethod urlMethodKey = new UrlMethod(urlValue, httpMethod);
+
+                                    // 3. VÉRIFICATION DU DOUBLON (Grâce à equals et hashCode de UrlMethod)
+                                    if (mappingUrls.containsKey(urlMethodKey)) {
+                                        throw new DuplicateUrlException(urlValue, httpMethod);
+                                    }
+
+                                    // 4. Stockage si tout est OK
                                     Mapping mapping = new Mapping(cls.getName(), method.getName());
-                                    mappingUrls.put(urlValue, mapping);
+                                    mappingUrls.put(urlMethodKey, mapping);
                                 }
                             }
                         }
@@ -90,28 +89,32 @@ public class FrontControllerServlet extends HttpServlet {
         String contextPath = request.getContextPath();
         String urlSaisie = requestURI.substring(contextPath.length());
         
-        // 3. Recherche du mapping associé à l'URL demandée
-        Mapping matchMapping = mappingUrls.get(urlSaisie);
+        // NOUVEAUTÉ SPRINT 3 : On récupère la méthode HTTP de la requête actuelle (GET ou POST)
+        String methodeAppelee = request.getMethod(); 
 
-        // Si l'URL demandée n'existe pas, on lève notre propre exception personnalisée
+        // On crée l'objet de recherche correspondant
+        UrlMethod rechercheKey = new UrlMethod(urlSaisie, methodeAppelee);
+        
+        // Recherche précise dans la Map
+        Mapping matchMapping = mappingUrls.get(rechercheKey);
+
         if (matchMapping == null) {
             try {
-                throw new UrlNotFoundException(urlSaisie);
+                throw new UrlNotFoundException(urlSaisie + " [" + methodeAppelee + "]");
             } catch (UrlNotFoundException e) {
-                // On encapsule l'exception dans une ServletException pour que Tomcat l'affiche proprement à l'écran
                 throw new ServletException(e.getMessage(), e);
             }
         }
 
-        // Si trouvée, on affiche les informations de mapping pour confirmer le succès du Sprint 2
         try (PrintWriter out = response.getWriter()) {
-            out.println("<h1>Framework Test - Sprint 2</h1>");
-            out.println("<p>URL saisie detectee : <strong>" + urlSaisie + "</strong></p>");
+            out.println("<h1>Framework Test - Sprint 3</h1>");
+            out.println("<p>URL saisie détectée : <strong>" + urlSaisie + "</strong></p>");
+            out.println("<p>Méthode HTTP détectée : <strong>" + methodeAppelee + "</strong></p>");
             
-            out.println("<div style='border: 2px solid green; background-color: #f4fff4; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
-            out.println("<h3 style='color: green; margin-top: 0;'>[OK] URL Mapping Trouve !</h3>");
-            out.println("<p><strong>Classe de destination :</strong> " + matchMapping.getClassName() + "</p>");
-            out.println("<p><strong>Methode cible :</strong> " + matchMapping.getMethod() + "()</p>");
+            out.println("<div style='border: 2px solid blue; background-color: #f0f4ff; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
+            out.println("<h3 style='color: blue; margin-top: 0;'>[Sprint 3] Route trouvée avec succès !</h3>");
+            out.println("<p><strong>Contrôleur cible :</strong> " + matchMapping.getClassName() + "</p>");
+            out.println("<p><strong>Méthode à exécuter :</strong> " + matchMapping.getMethod() + "()</p>");
             out.println("</div>");
         }
     }
