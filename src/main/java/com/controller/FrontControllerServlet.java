@@ -16,7 +16,7 @@ import java.util.Map;
 
 public class FrontControllerServlet extends HttpServlet {
 
-    // Table de hachage associant un couple (URL, Méthode HTTP) à son Mapping
+    // Changement ici : La clé est maintenant un objet UrlMethod
     private Map<UrlMethod, Mapping> mappingUrls = new HashMap<>();
 
     @Override
@@ -54,22 +54,24 @@ public class FrontControllerServlet extends HttpServlet {
                         if (cls.isAnnotationPresent(AnnotationController.class)) {
                             Method[] methods = cls.getDeclaredMethods();
                             for (Method method : methods) {
+
                                 
                                 if (method.isAnnotationPresent(UrlMapping.class)) {
                                     UrlMapping urlMapping = method.getAnnotation(UrlMapping.class);
                                     
+                                    // 1. On extrait l'URL et la méthode HTTP (GET/POST)
                                     String urlValue = urlMapping.value();
                                     String httpMethod = urlMapping.method().toUpperCase();
 
-                                    // Création de l'instance UrlMethod (Clé)
+                                    // 2. On instancie la clé UrlMethod
                                     UrlMethod urlMethodKey = new UrlMethod(urlValue, httpMethod);
 
-                                    // Sprint 3 : Exception si la fonction a la même méthode et même URL
+                                    // 3. VÉRIFICATION DU DOUBLON (Grâce à equals et hashCode de UrlMethod)
                                     if (mappingUrls.containsKey(urlMethodKey)) {
                                         throw new DuplicateUrlException(urlValue, httpMethod);
                                     }
 
-                                    // Stockage dans la Map
+                                    // 4. Stockage si tout est OK
                                     Mapping mapping = new Mapping(cls.getName(), method.getName());
                                     mappingUrls.put(urlMethodKey, mapping);
                                 }
@@ -82,70 +84,65 @@ public class FrontControllerServlet extends HttpServlet {
     }
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
-        response.setContentType("text/html;charset=UTF-8");
-        
-        String requestURI = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        String urlSaisie = requestURI.substring(contextPath.length());
-        String methodeAppelee = request.getMethod().toUpperCase(); 
+        throws ServletException, IOException {
+    response.setContentType("text/html;charset=UTF-8");
+    
+    String requestURI = request.getRequestURI();
+    String contextPath = request.getContextPath();
+    String urlSaisie = requestURI.substring(contextPath.length());
+    String methodeAppelee = request.getMethod(); 
 
-        // Sécurité : Si c'est un forward interne vers WEB-INF suite à l'exécution d'une méthode,
-        // on laisse Tomcat servir le fichier HTML de manière standard.
-        if (urlSaisie.startsWith("/WEB-INF/")) {
-            getServletContext().getNamedDispatcher("default").forward(request, response);
-            return;
-        }
+    UrlMethod rechercheKey = new UrlMethod(urlSaisie, methodeAppelee);
+    Mapping matchMapping = mappingUrls.get(rechercheKey);
 
-        // Recherche du mapping avec le couple (URL, Méthode)
-        UrlMethod rechercheKey = new UrlMethod(urlSaisie, methodeAppelee);
-        Mapping matchMapping = mappingUrls.get(rechercheKey);
-
-        // Si l'URL et la méthode ne correspondent à rien
-        if (matchMapping == null) {
-            try {
-                throw new UrlNotFoundException(urlSaisie + " [" + methodeAppelee + "]");
-            } catch (UrlNotFoundException e) {
-                throw new ServletException(e.getMessage(), e);
-            }
-        }
-
-        // EXÉCUTION DYNAMIQUE DU CONTRÔLEUR VIA RÉFLEXION
+    if (matchMapping == null) {
         try {
-            Class<?> targetClass = Class.forName(matchMapping.getClassName());
-            Object controllerInstance = targetClass.getDeclaredConstructor().newInstance();
-            
-            try {
-                // Étape A : On cherche d'abord si la méthode attend (HttpServletRequest, HttpServletResponse)
-                Method methodToExecute = targetClass.getMethod(matchMapping.getMethod(), 
-                        HttpServletRequest.class, HttpServletResponse.class);
-                
-                // Exécution (Utile pour votre méthode showForm qui fait le forward)
-                methodToExecute.invoke(controllerInstance, request, response);
-                
-            } catch (NoSuchMethodException e) {
-                // Étape B : Si la méthode n'a pas d'arguments, on l'appelle à vide
-                Method methodToExecute = targetClass.getMethod(matchMapping.getMethod());
-                methodToExecute.invoke(controllerInstance);
-                
-                // On affiche un retour visuel pour confirmer l'exécution de la méthode vide
-                try (PrintWriter out = response.getWriter()) {
-                    out.println("<h1>Framework Test - Sprint 3</h1>");
-                    out.println("<p>URL saisie détectée : <strong>" + urlSaisie + "</strong></p>");
-                    out.println("<p>Méthode HTTP détectée : <strong>" + methodeAppelee + "</strong></p>");
-                    
-                    out.println("<div style='border: 2px solid green; background-color: #f4fff4; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
-                    out.println("<h3 style='color: green; margin-top: 0;'>[OK] Méthode vide exécutée avec succès !</h3>");
-                    out.println("<p><strong>Classe :</strong> " + matchMapping.getClassName() + "</p>");
-                    out.println("<p><strong>Fonction :</strong> " + matchMapping.getMethod() + "()</p>");
-                    out.println("</div>");
-                }
-            }
-
-        } catch (Exception e) {
-            throw new ServletException("Erreur lors de l'exécution du contrôleur : " + matchMapping.getClassName(), e);
+            throw new UrlNotFoundException(urlSaisie + " [" + methodeAppelee + "]");
+        } catch (UrlNotFoundException e) {
+            throw new ServletException(e.getMessage(), e);
         }
     }
+
+    // --- DEBUT DE L'INVOCATION DYNAMIQUE ---
+    Object resultatMethode = null;
+    try {
+        // 1. Charger la classe du contrôleur
+        Class<?> cls = Class.forName(matchMapping.getClassName());
+
+        // 2. Créer l'instance du contrôleur
+        Object controleurInstance = cls.getDeclaredConstructor().newInstance();
+
+        // 3. Récupérer la méthode
+        Method methodeAExecuter = cls.getDeclaredMethod(matchMapping.getMethod());
+
+        // 4. Invoquer la méthode et récupérer le résultat
+        resultatMethode = methodeAExecuter.invoke(controleurInstance);
+
+        // 5. Vérification dans la console du serveur
+        System.out.println("[SUCCESS] Méthode appelée avec succès : " 
+                + matchMapping.getClassName() + "." + matchMapping.getMethod() + "()");
+        System.out.println("[INFO] Résultat renvoyé par la méthode : " + resultatMethode);
+
+    } catch (Exception e) {
+        System.out.println("[ERROR] Échec de l'appel de la méthode : " + e.getMessage());
+        e.printStackTrace();
+        throw new ServletException("Erreur d'invocation du contrôleur", e);
+    }
+    // --- FIN DE L'INVOCATION DYNAMIQUE ---
+
+    try (PrintWriter out = response.getWriter()) {
+        out.println("<h1>Framework Test - Sprint 3</h1>");
+        out.println("<p>URL saisie détectée : <strong>" + urlSaisie + "</strong></p>");
+        out.println("<p>Méthode HTTP détectée : <strong>" + methodeAppelee + "</strong></p>");
+        
+        out.println("<div style='border: 2px solid blue; background-color: #f0f4ff; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
+        out.println("<h3 style='color: blue; margin-top: 0;'>[Sprint 3] Route trouvée et exécutée !</h3>");
+        out.println("<p><strong>Contrôleur cible :</strong> " + matchMapping.getClassName() + "</p>");
+        out.println("<p><strong>Méthode exécutée :</strong> " + matchMapping.getMethod() + "()</p>");
+        out.println("<p><strong>Retour de la méthode :</strong> " + resultatMethode + "</p>");
+        out.println("</div>");
+    }
+}
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
