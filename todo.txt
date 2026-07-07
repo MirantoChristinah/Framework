@@ -51,8 +51,22 @@ To do FrameWork :
     on appelle le method et on recupere le method et on l' invoke , on verifie dans le console qu 'on la appelle 
     quand on conait la method executer (invoke) sans creer l 'instance (dans le Processrequest)
 
+    - on boucle pour avoir  les contenus : class , method , 
+    - on instancie et faits println 
+
+
     *SprintSpecial : 
         - implementation du context listener : init() premier appelle , 
         au demarrage du application le demmarge efa 
         listener , filter , servelet 
+        - 
+
+    *Sprint5 : 
+        - ModelandView 
+        - recuperer ModelandView de mis map de alaina ny url de cocatenena de dispatcherforward de donnes ao map , 
+        - 
+
+    *Sprint6 : 
+        - clone spring mvc   
+        - setAttribute : methode , 
         - 

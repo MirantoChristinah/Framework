@@ -54,6 +54,7 @@ public class FrontControllerServlet extends HttpServlet {
                         if (cls.isAnnotationPresent(AnnotationController.class)) {
                             Method[] methods = cls.getDeclaredMethods();
                             for (Method method : methods) {
+
                                 
                                 if (method.isAnnotationPresent(UrlMapping.class)) {
                                     UrlMapping urlMapping = method.getAnnotation(UrlMapping.class);
@@ -83,42 +84,65 @@ public class FrontControllerServlet extends HttpServlet {
     }
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
-        response.setContentType("text/html;charset=UTF-8");
-        
-        String requestURI = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        String urlSaisie = requestURI.substring(contextPath.length());
-        
-        // NOUVEAUTÉ SPRINT 3 : On récupère la méthode HTTP de la requête actuelle (GET ou POST)
-        String methodeAppelee = request.getMethod(); 
+        throws ServletException, IOException {
+    response.setContentType("text/html;charset=UTF-8");
+    
+    String requestURI = request.getRequestURI();
+    String contextPath = request.getContextPath();
+    String urlSaisie = requestURI.substring(contextPath.length());
+    String methodeAppelee = request.getMethod(); 
 
-        // On crée l'objet de recherche correspondant
-        UrlMethod rechercheKey = new UrlMethod(urlSaisie, methodeAppelee);
-        
-        // Recherche précise dans la Map
-        Mapping matchMapping = mappingUrls.get(rechercheKey);
+    UrlMethod rechercheKey = new UrlMethod(urlSaisie, methodeAppelee);
+    Mapping matchMapping = mappingUrls.get(rechercheKey);
 
-        if (matchMapping == null) {
-            try {
-                throw new UrlNotFoundException(urlSaisie + " [" + methodeAppelee + "]");
-            } catch (UrlNotFoundException e) {
-                throw new ServletException(e.getMessage(), e);
-            }
-        }
-
-        try (PrintWriter out = response.getWriter()) {
-            out.println("<h1>Framework Test - Sprint 3</h1>");
-            out.println("<p>URL saisie détectée : <strong>" + urlSaisie + "</strong></p>");
-            out.println("<p>Méthode HTTP détectée : <strong>" + methodeAppelee + "</strong></p>");
-            
-            out.println("<div style='border: 2px solid blue; background-color: #f0f4ff; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
-            out.println("<h3 style='color: blue; margin-top: 0;'>[Sprint 3] Route trouvée avec succès !</h3>");
-            out.println("<p><strong>Contrôleur cible :</strong> " + matchMapping.getClassName() + "</p>");
-            out.println("<p><strong>Méthode à exécuter :</strong> " + matchMapping.getMethod() + "()</p>");
-            out.println("</div>");
+    if (matchMapping == null) {
+        try {
+            throw new UrlNotFoundException(urlSaisie + " [" + methodeAppelee + "]");
+        } catch (UrlNotFoundException e) {
+            throw new ServletException(e.getMessage(), e);
         }
     }
+
+    // --- DEBUT DE L'INVOCATION DYNAMIQUE ---
+    Object resultatMethode = null;
+    try {
+        // 1. Charger la classe du contrôleur
+        Class<?> cls = Class.forName(matchMapping.getClassName());
+
+        // 2. Créer l'instance du contrôleur
+        Object controleurInstance = cls.getDeclaredConstructor().newInstance();
+
+        // 3. Récupérer la méthode
+        Method methodeAExecuter = cls.getDeclaredMethod(matchMapping.getMethod());
+
+        // 4. Invoquer la méthode et récupérer le résultat
+        resultatMethode = methodeAExecuter.invoke(controleurInstance);
+
+        // 5. Vérification dans la console du serveur
+        System.out.println("[SUCCESS] Méthode appelée avec succès : " 
+                + matchMapping.getClassName() + "." + matchMapping.getMethod() + "()");
+        System.out.println("[INFO] Résultat renvoyé par la méthode : " + resultatMethode);
+
+    } catch (Exception e) {
+        System.out.println("[ERROR] Échec de l'appel de la méthode : " + e.getMessage());
+        e.printStackTrace();
+        throw new ServletException("Erreur d'invocation du contrôleur", e);
+    }
+    // --- FIN DE L'INVOCATION DYNAMIQUE ---
+
+    try (PrintWriter out = response.getWriter()) {
+        out.println("<h1>Framework Test - Sprint 3</h1>");
+        out.println("<p>URL saisie détectée : <strong>" + urlSaisie + "</strong></p>");
+        out.println("<p>Méthode HTTP détectée : <strong>" + methodeAppelee + "</strong></p>");
+        
+        out.println("<div style='border: 2px solid blue; background-color: #f0f4ff; padding: 15px; margin-top: 20px; border-radius: 5px;'>");
+        out.println("<h3 style='color: blue; margin-top: 0;'>[Sprint 3] Route trouvée et exécutée !</h3>");
+        out.println("<p><strong>Contrôleur cible :</strong> " + matchMapping.getClassName() + "</p>");
+        out.println("<p><strong>Méthode exécutée :</strong> " + matchMapping.getMethod() + "()</p>");
+        out.println("<p><strong>Retour de la méthode :</strong> " + resultatMethode + "</p>");
+        out.println("</div>");
+    }
+}
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response)
