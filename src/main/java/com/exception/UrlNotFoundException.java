@@ -1,4 +1,4 @@
-package com.controller;
+package com.exception;
 
 public class UrlNotFoundException extends Exception {
     

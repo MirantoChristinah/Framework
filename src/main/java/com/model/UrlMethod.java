@@ -1,4 +1,4 @@
-package com.controller;
+package com.model;
 
 import java.util.Objects;
 

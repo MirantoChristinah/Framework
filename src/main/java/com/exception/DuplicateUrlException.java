@@ -1,4 +1,4 @@
-package com.controller;
+package com.exception;
 
 public class DuplicateUrlException extends Exception {
     public DuplicateUrlException(String url, String method) {
