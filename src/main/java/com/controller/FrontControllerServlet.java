@@ -15,11 +15,12 @@ import com.model.UrlMethod;
 
 public class FrontControllerServlet extends HttpServlet {
 
+    
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         response.setContentType("text/html;charset=UTF-8");
         
-        // 1. 📬 Récupération de la Map partagée depuis le ServletContext
+        // 1.Récupération de la Map partagée depuis le ServletContext
         // Attention : utilise la même clé que dans ton Listener ("mesRoutes")
         Map<UrlMethod, Mapping> mappingUrls = (Map<UrlMethod, Mapping>) getServletContext().getAttribute("mesRoutes");
         
@@ -38,8 +39,8 @@ public class FrontControllerServlet extends HttpServlet {
         String viewSuffix = (String) getServletContext().getAttribute("view-suffix");
         
         // Valeurs par défaut si non définies dans le contexte
-        if (viewPrefix == null) viewPrefix = "/WEB-INF/views/";
-        if (viewSuffix == null) viewSuffix = ".jsp";
+        //if (viewPrefix == null) viewPrefix = "/WEB-INF/views/";
+        //if (viewSuffix == null) viewSuffix = ".jsp";
 
         String reqMethod = request.getMethod();
         UrlMethod urlMethod = new UrlMethod(url, reqMethod);

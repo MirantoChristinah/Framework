@@ -8,31 +8,37 @@ import java.util.Map;
 import com.model.Mapping;
 import com.model.UrlMethod;
 import com.utils.RouteLoader;
-
+import jakarta.servlet.ServletContext;
 @WebListener
 public class AppContextListener implements ServletContextListener {
 
     @Override
     public void contextInitialized(ServletContextEvent sce) {
-        String packageToScan = sce.getServletContext().getInitParameter("packageControllers");
-        if (packageToScan == null || packageToScan.trim().isEmpty()) {
-            packageToScan = "com.controller"; 
-        }
+        ServletContext context = sce.getServletContext();
+
+        // 1. Lecture depuis le web.xml
+        String packageToScan = context.getInitParameter("packageControllers");
+        String viewPrefix = context.getInitParameter("view-prefix");
+        String viewSuffix = context.getInitParameter("view-suffix");
+
+        // Valeurs par défaut si le web.xml est mal lu
+        if (packageToScan == null) packageToScan = "com.controller";
+        if (viewPrefix == null) viewPrefix = "/WEB-INF/Views/";
+        if (viewSuffix == null) viewSuffix = ".jsp";
 
         try {
             Map<UrlMethod, Mapping> mappingUrls = new HashMap<>();
-            
-            // On appelle la classe utilitaire externe
             RouteLoader.buildRoutingTable(packageToScan, mappingUrls);
             
-            sce.getServletContext().setAttribute("mesRoutes", mappingUrls);
-            System.out.println("[INFO] Scan des packages réussi. Routes enregistrées !");
+            // 2. STOCKAGE DANS LE CONTEXTE (Indispensable pour le Servlet !)
+            context.setAttribute("mesRoutes", mappingUrls);
+            context.setAttribute("view-prefix", viewPrefix); // <-- Ne pas oublier !
+            context.setAttribute("view-suffix", viewSuffix); // <-- Ne pas oublier !
             
+            System.out.println("[INFO] Configuration chargée avec succès !");
         } catch (Exception e) {
-            System.err.println("[ERROR] Échec du scan au démarrage : " + e.getMessage());
             e.printStackTrace();
-            // Optionnel mais recommandé : bloquer le démarrage de l'application si les routes plantent
-            throw new RuntimeException(e); 
+            throw new RuntimeException(e);
         }
     }
 }
