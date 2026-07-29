@@ -18,14 +18,14 @@ public class ApplicationContext {
         }
     }
 
-    // Injection de dépendances par réflexion
+    // Injection de dependances par reflexion
     private void injectDependencies(Object instance) throws Exception {
         for (Field field : instance.getClass().getDeclaredFields()) {
             if (field.isAnnotationPresent(Autowired.class)) {
                 Class<?> depType = field.getType();
                 Object dependency = getBean(depType);
                 if (dependency == null) {
-                    throw new RuntimeException("Dépendance non trouvée : " + depType.getName());
+                    throw new RuntimeException("Dependance non trouvee : " + depType.getName());
                 }
                 field.setAccessible(true);
                 field.set(instance, dependency);

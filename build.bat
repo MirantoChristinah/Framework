@@ -15,10 +15,10 @@ if exist bin rmdir /s /q bin
 mkdir bin
 
 echo [2/4] Compilation globale du Framework...
-:: Génération de la liste de tous les fichiers .java (récursif)
+:: Generation de la liste de tous les fichiers .java (recursif)
 dir /s /B src\main\java\*.java > sources.txt
 
-:: Compilation de tous les fichiers listés
+:: Compilation de tous les fichiers listes
 javac -d bin -cp "%TOMCAT_LIB%" @sources.txt
 
 if %errorlevel% neq 0 (
@@ -28,7 +28,7 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-:: Suppression du fichier temporaire si tout s'est bien passé
+:: Suppression du fichier temporaire si tout s'est bien passe
 del sources.txt
 echo [OK] Compilation reussie de toutes les classes.
 
@@ -43,7 +43,7 @@ echo [OK] Fichier %JAR_NAME% cree avec succes.
 echo.
 
 echo [4/4] Deploiement vers le projet de test...
-:: Vérification si le dossier de destination existe, sinon on le crée
+:: Verification si le dossier de destination existe, sinon on le cree
 if not exist "%TARGET_LIB_DIR%" mkdir "%TARGET_LIB_DIR%"
 
 :: Suppression de l'ancien JAR s'il existe

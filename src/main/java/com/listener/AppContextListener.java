@@ -25,63 +25,58 @@ public class AppContextListener implements ServletContextListener {
     public void contextInitialized(ServletContextEvent sce) {
         ServletContext context = sce.getServletContext();
 
-        // 1. Lecture des paramètres depuis web.xml
         String packageToScan = context.getInitParameter("packageControllers");
         String viewPrefix = context.getInitParameter("view-prefix");
         String viewSuffix = context.getInitParameter("view-suffix");
 
-        // Valeurs par défaut
         if (packageToScan == null) packageToScan = "com.controller";
         if (viewPrefix == null) viewPrefix = "/WEB-INF/Views/";
         if (viewSuffix == null) viewSuffix = ".jsp";
 
         try {
-            // ═══════════════════════════════════════════════
-            // 2. CRÉATION DU CONTENEUR IOC (UNE SEULE FOIS)
-            // ═══════════════════════════════════════════════
+            // -----------------------------------------------------
+            // 2. CREATION DU CONTENEUR IOC (UNE SEULE FOIS)
+            // -----------------------------------------------------
             ApplicationContext appContext = new ApplicationContext();
 
-            // Scanner TOUTES les classes du package (récursif)
             List<Class<?>> allClasses = scanPackage(packageToScan);
 
             // Enregistrer d'abord les Repository, puis Service, puis Controller
-            // (pour l'ordre d'injection, on fait 3 passes)
             for (Class<?> cls : allClasses) {
                 if (cls.isAnnotationPresent(Repository.class)) {
                     appContext.register(cls);
-                    System.out.println("[IOC] Repository enregistré : " + cls.getName());
+                    System.out.println("[IOC] Repository enregistre : " + cls.getName());
                 }
             }
             for (Class<?> cls : allClasses) {
                 if (cls.isAnnotationPresent(Service.class)) {
                     appContext.register(cls);
-                    System.out.println("[IOC] Service enregistré : " + cls.getName());
+                    System.out.println("[IOC] Service enregistre : " + cls.getName());
                 }
             }
             for (Class<?> cls : allClasses) {
                 if (cls.isAnnotationPresent(AnnotationController.class)) {
                     appContext.register(cls);
-                    System.out.println("[IOC] Controller enregistré : " + cls.getName());
+                    System.out.println("[IOC] Controller enregistre : " + cls.getName());
                 }
             }
 
-            // Stocker le conteneur dans le ServletContext
             context.setAttribute("appContext", appContext);
 
-            // ═══════════════════════════════════════════════
-            // 3. CONSTRUCTION DES ROUTES (comme avant)
-            // ═══════════════════════════════════════════════
+            // -----------------------------------------------------
+            // 3. CONSTRUCTION DES ROUTES
+            // -----------------------------------------------------
             Map<UrlMethod, Mapping> mappingUrls = new HashMap<>();
             RouteLoader.buildRoutingTable(packageToScan, mappingUrls);
             context.setAttribute("mesRoutes", mappingUrls);
 
-            // ═══════════════════════════════════════════════
+            // -----------------------------------------------------
             // 4. STOCKAGE DES VUES
-            // ═══════════════════════════════════════════════
+            // -----------------------------------------------------
             context.setAttribute("view-prefix", viewPrefix);
             context.setAttribute("view-suffix", viewSuffix);
 
-            System.out.println("[INFO] Conteneur IoC, routes et vues chargés avec succès !");
+            System.out.println("[INFO] Conteneur IoC, routes et vues charges avec succes !");
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -91,12 +86,12 @@ public class AppContextListener implements ServletContextListener {
 
     @Override
     public void contextDestroyed(ServletContextEvent sce) {
-        System.out.println("[INFO] Application arrêtée.");
+        System.out.println("[INFO] Application arretee.");
     }
 
-    // ═══════════════════════════════════════════════════════
-    // SCAN RÉCURSIF (nécessaire pour trouver tous les beans)
-    // ═══════════════════════════════════════════════════════
+    // -----------------------------------------------------
+    // SCAN RECURSIF
+    // -----------------------------------------------------
     private List<Class<?>> scanPackage(String packageName) throws Exception {
         List<Class<?>> classes = new ArrayList<>();
         String path = packageName.replace('.', '/');

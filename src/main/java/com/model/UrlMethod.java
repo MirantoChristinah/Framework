@@ -8,13 +8,13 @@ public class UrlMethod {
 
     public UrlMethod(String url, String method) {
         this.url = url;
-        this.method = method.toUpperCase(); // On force en majuscules pour éviter les erreurs de casse
+        this.method = method.toUpperCase(); // On force en majuscules pour eviter les erreurs de casse
     }
 
     public String getUrl() { return url; }
     public String getMethod() { return method; }
 
-    // Redéfinition essentielle pour la HashMap
+    // Redefinition essentielle pour la HashMap
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

@@ -1,5 +1,6 @@
 package com.controller;
 
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -20,19 +21,19 @@ public class FrontControllerServlet extends HttpServlet {
 
     private String viewPrefix;
     private String viewSuffix;
-    private ApplicationContext appContext; // ← LE CONTENEUR IOC (singleton)
+    private ApplicationContext appContext; // LE CONTENEUR IOC (singleton)
 
     @Override
     public void init() throws ServletException {
         ServletContext ctx = getServletContext();
 
-        // Récupération du conteneur (créé UNE SEULE FOIS dans le Listener)
+        // Recuperation du conteneur (cree UNE SEULE FOIS dans le Listener)
         this.appContext = (ApplicationContext) ctx.getAttribute("appContext");
         if (this.appContext == null) {
-            throw new ServletException("Le conteneur IoC n'a pas été initialisé au démarrage.");
+            throw new ServletException("Le conteneur IoC n'a pas ete initialise au demarrage.");
         }
 
-        // Récupération des vues (via getAttribute, pas getInitParameter)
+        // Recuperation des vues (via getAttribute, pas getInitParameter)
         this.viewPrefix = (String) ctx.getAttribute("view-prefix");
         this.viewSuffix = (String) ctx.getAttribute("view-suffix");
 
@@ -45,13 +46,13 @@ public class FrontControllerServlet extends HttpServlet {
 
         response.setContentType("text/html;charset=UTF-8");
 
-        // 1. Récupération des routes depuis le contexte
+        // 1. Recuperation des routes depuis le contexte
         @SuppressWarnings("unchecked")
         Map<UrlMethod, Mapping> mappingUrls =
                 (Map<UrlMethod, Mapping>) getServletContext().getAttribute("mesRoutes");
 
         if (mappingUrls == null) {
-            throw new ServletException("Le registre des routes n'a pas été initialisé au démarrage.");
+            throw new ServletException("Le registre des routes n'a pas ete initialise au demarrage.");
         }
 
         // 2. Parsing de l'URL
@@ -67,18 +68,18 @@ public class FrontControllerServlet extends HttpServlet {
                 Mapping mapping = mappingUrls.get(urlMethod);
                 Class<?> controllerClass = Class.forName(mapping.getClassName());
 
-                // ← CLÉ : récupère l'instance depuis le CONTENEUR (SINGLETON)
-                // au lieu de newInstance() à chaque requête (PROTOTYPE)
+                // CLe : recupere l'instance depuis le CONTENEUR (SINGLETON)
+                // au lieu de newInstance() a chaque requete (PROTOTYPE)
                 Object controller = appContext.getBean(controllerClass);
                 if (controller == null) {
-                    throw new ServletException("Controller non trouvé dans le conteneur : " + controllerClass.getName());
+                    throw new ServletException("Controller non trouve dans le conteneur : " + controllerClass.getName());
                 }
 
-                // Récupération de la méthode
+                // Recuperation de la methode
                 String methodName = mapping.getMethod();
                 Method method = controllerClass.getDeclaredMethod(methodName);
 
-                // Invocation (le controller a déjà ses @Autowired injectés)
+                // Invocation (le controller a deja ses @Autowired injectes)
                 Object result = method.invoke(controller);
 
                 // Traitement ModelView
@@ -96,21 +97,21 @@ public class FrontControllerServlet extends HttpServlet {
                     return;
 
                 } else {
-                    // Résultat brut (String, int, etc.)
+                    // Resultat brut (String, int, etc.)
                     response.setContentType("text/html;charset=UTF-8");
                     try (PrintWriter out = response.getWriter()) {
                         out.println("<h2>FrontController servlet</h2>");
                         out.println("<p><strong>Current URL:</strong> " + urlMain + "</p>");
-                        out.println("<p>La méthode a retourné : " + result + "</p>");
+                        out.println("<p>La methode a retourne : " + result + "</p>");
                     }
                 }
 
             } catch (Exception e) {
-                throw new ServletException("Erreur lors de l'exécution du contrôleur pour l'URL: " + url, e);
+                throw new ServletException("Erreur lors de l'execution du controleur pour l'URL: " + url, e);
             }
         } else {
             response.sendError(HttpServletResponse.SC_NOT_FOUND,
-                    "Aucune route trouvée pour l'URL : " + url + " [" + reqMethod + "]");
+                    "Aucune route trouvee pour l'URL : " + url + " [" + reqMethod + "]");
         }
     }
 

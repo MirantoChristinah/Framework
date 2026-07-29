@@ -1,4 +1,4 @@
-# Création d'une Pull Request de Sprint0 vers main
+# Creation d'une Pull Request de Sprint0 vers main
 
 ## 1. Se placer sur la branche Sprint0
 
@@ -8,9 +8,9 @@ git checkout Sprint0
 
 git push -u origin Sprint0
 
-## 3. Créer la Pull Request sur GitHub
+## 3. Creer la Pull Request sur GitHub
 
-* Ouvrir le dépôt GitHub.
+* Ouvrir le depot GitHub.
 * Aller dans l'onglet "Pull Requests".
 * Cliquer sur "New Pull Request".
 * Choisir :
@@ -26,7 +26,7 @@ git push -u origin Sprint0
 * Cliquer sur "Merge Pull Request".
 * Cliquer sur "Confirm Merge".
 
-## 5. Supprimer la branche après fusion
+## 5. Supprimer la branche apres fusion
 
 git checkout main
 
