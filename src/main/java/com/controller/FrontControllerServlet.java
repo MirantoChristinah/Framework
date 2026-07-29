@@ -1,6 +1,7 @@
 package com.controller;
 
 import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -9,91 +10,107 @@ import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.util.Map;
 
+import com.ioc.ApplicationContext;
 import com.model.Mapping;
 import com.model.ModelView;
 import com.model.UrlMethod;
 
+@WebServlet(name = "FrontController", urlPatterns = {"/"})
 public class FrontControllerServlet extends HttpServlet {
 
-    
+    private String viewPrefix;
+    private String viewSuffix;
+    private ApplicationContext appContext; // ← LE CONTENEUR IOC (singleton)
+
+    @Override
+    public void init() throws ServletException {
+        ServletContext ctx = getServletContext();
+
+        // Récupération du conteneur (créé UNE SEULE FOIS dans le Listener)
+        this.appContext = (ApplicationContext) ctx.getAttribute("appContext");
+        if (this.appContext == null) {
+            throw new ServletException("Le conteneur IoC n'a pas été initialisé au démarrage.");
+        }
+
+        // Récupération des vues (via getAttribute, pas getInitParameter)
+        this.viewPrefix = (String) ctx.getAttribute("view-prefix");
+        this.viewSuffix = (String) ctx.getAttribute("view-suffix");
+
+        if (viewPrefix == null) viewPrefix = "/WEB-INF/Views/";
+        if (viewSuffix == null) viewSuffix = ".jsp";
+    }
+
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
+
         response.setContentType("text/html;charset=UTF-8");
-        
-        // 1.Récupération de la Map partagée depuis le ServletContext
-        // Attention : utilise la même clé que dans ton Listener ("mesRoutes")
-        Map<UrlMethod, Mapping> mappingUrls = (Map<UrlMethod, Mapping>) getServletContext().getAttribute("mesRoutes");
-        
-        // Sécurité si le listener n'a pas pu s'exécuter correctement au démarrage
+
+        // 1. Récupération des routes depuis le contexte
+        @SuppressWarnings("unchecked")
+        Map<UrlMethod, Mapping> mappingUrls =
+                (Map<UrlMethod, Mapping>) getServletContext().getAttribute("mesRoutes");
+
         if (mappingUrls == null) {
             throw new ServletException("Le registre des routes n'a pas été initialisé au démarrage.");
         }
 
-        PrintWriter out = response.getWriter();
+        // 2. Parsing de l'URL
         String urlMain = request.getRequestURL().toString();
         String contextPath = request.getContextPath();
         String url = request.getRequestURI().substring(contextPath.length());
-                        
-        // Récupération des préfixes/suffixes de vue (si tu les gères via le listener)
-        String viewPrefix = (String) getServletContext().getAttribute("view-prefix");
-        String viewSuffix = (String) getServletContext().getAttribute("view-suffix");
-        
-        // Valeurs par défaut si non définies dans le contexte
-        //if (viewPrefix == null) viewPrefix = "/WEB-INF/views/";
-        //if (viewSuffix == null) viewSuffix = ".jsp";
-
         String reqMethod = request.getMethod();
         UrlMethod urlMethod = new UrlMethod(url, reqMethod);
 
-        // 2. 🚦 Vérification de l'existence de la route (URL + Méthode HTTP)
+        // 3. Traitement de la route
         if (mappingUrls.containsKey(urlMethod)) {
             try {
-                Mapping mapping = mappingUrls.get(urlMethod); 
-                
-                // A. Récupération et instanciation de la classe du contrôleur
-                // Note : Si ton mapping stocke un String (ex: "com.controller.SakaizController"), on utilise Class.forName()
+                Mapping mapping = mappingUrls.get(urlMethod);
                 Class<?> controllerClass = Class.forName(mapping.getClassName());
-                Object controller = controllerClass.getDeclaredConstructor().newInstance();
 
-                // B. Récupération de la méthode grâce à son nom (String) via la réflexion
+                // ← CLÉ : récupère l'instance depuis le CONTENEUR (SINGLETON)
+                // au lieu de newInstance() à chaque requête (PROTOTYPE)
+                Object controller = appContext.getBean(controllerClass);
+                if (controller == null) {
+                    throw new ServletException("Controller non trouvé dans le conteneur : " + controllerClass.getName());
+                }
+
+                // Récupération de la méthode
                 String methodName = mapping.getMethod();
                 Method method = controllerClass.getDeclaredMethod(methodName);
 
-                // C. Invocation de la méthode sur l'instance du contrôleur
+                // Invocation (le controller a déjà ses @Autowired injectés)
                 Object result = method.invoke(controller);
 
-                // D. Traitement du résultat si c'est un ModelView
+                // Traitement ModelView
                 if (result instanceof ModelView) {
                     ModelView mv = (ModelView) result;
 
-                    // On injecte les données du ModelView dans les attributs de la requête
                     if (mv.getData() != null) {
                         for (Map.Entry<String, Object> e : mv.getData().entrySet()) {
                             request.setAttribute(e.getKey(), e.getValue());
                         }
                     }
 
-                    // Construction du chemin de la vue
                     String view = viewPrefix + mv.getUrl() + viewSuffix;
-
-                    // Redirection interne (Forward) vers la vue
                     request.getRequestDispatcher(view).forward(request, response);
                     return;
+
                 } else {
-                    // Si la méthode ne retourne pas un ModelView (ex: String, void, etc.)
-                    out.println("<h2>FrontController servlet</h2>");
-                    out.println("<p><strong>Current URL:</strong> " + urlMain + "</p>");
-                    out.println("<p>La méthode a retourné : " + result + "</p>");
+                    // Résultat brut (String, int, etc.)
+                    response.setContentType("text/html;charset=UTF-8");
+                    try (PrintWriter out = response.getWriter()) {
+                        out.println("<h2>FrontController servlet</h2>");
+                        out.println("<p><strong>Current URL:</strong> " + urlMain + "</p>");
+                        out.println("<p>La méthode a retourné : " + result + "</p>");
+                    }
                 }
-                
+
             } catch (Exception e) {
-                // On encapsule l'exception réelle pour avoir un affichage précis de l'erreur dans la console
                 throw new ServletException("Erreur lors de l'exécution du contrôleur pour l'URL: " + url, e);
             }
         } else {
-            // 404 personnalisé si aucune route ne correspond
-            response.sendError(HttpServletResponse.SC_NOT_FOUND, "Aucune route trouvée pour l'URL : " + url + " [" + reqMethod + "]");
-            return;
+            response.sendError(HttpServletResponse.SC_NOT_FOUND,
+                    "Aucune route trouvée pour l'URL : " + url + " [" + reqMethod + "]");
         }
     }
 
