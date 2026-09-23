@@ -90,4 +90,8 @@ To do FrameWork :
     -tsy atao en dure fa avy anaty base
     -spring misy couche Repository
 
-    donc gros ce que j 'ai compris c'est ue c 'est faire les donnes dans le base mais plus en dur mais via base de donnes en utilisant spring ou eclaire moi et utiliser un conteneur dont on applele une seul fois lors de demmarrge du framework , eclaire moi et verifie bien tous 
+    Sprint6: Web API
+        objectif : methode d'action ao Controller tsy makany view fa mamerina Json 
+        -tsy manao request dispacher fa mamerina json 
+    => manao fonction retourne json 
+    
