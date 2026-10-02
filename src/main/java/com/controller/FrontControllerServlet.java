@@ -15,6 +15,8 @@ import com.ioc.ApplicationContext;
 import com.model.Mapping;
 import com.model.ModelView;
 import com.model.UrlMethod;
+import com.utils.JsonConvertir;
+import com.annotation.JsonAnnotation;
 
 @WebServlet(name = "FrontController", urlPatterns = {"/"})
 public class FrontControllerServlet extends HttpServlet {
@@ -82,6 +84,19 @@ public class FrontControllerServlet extends HttpServlet {
                 // Invocation (le controller a deja ses @Autowired injectes)
                 Object result = method.invoke(controller);
 
+                // WEB API
+                if (method.isAnnotationPresent(JsonAnnotation.class)
+                        || controllerClass.isAnnotationPresent(JsonAnnotation.class)) {
+
+                    response.setContentType("application/json;charset=UTF-8");
+
+                    try (PrintWriter out = response.getWriter()) {
+                        out.print(JsonConvertir.toJson(result));
+                    }
+
+                    return;
+                }
+
                 // Traitement ModelView
                 if (result instanceof ModelView) {
                     ModelView mv = (ModelView) result;
@@ -109,6 +124,7 @@ public class FrontControllerServlet extends HttpServlet {
             } catch (Exception e) {
                 throw new ServletException("Erreur lors de l'execution du controleur pour l'URL: " + url, e);
             }
+            
         } else {
             response.sendError(HttpServletResponse.SC_NOT_FOUND,
                     "Aucune route trouvee pour l'URL : " + url + " [" + reqMethod + "]");
