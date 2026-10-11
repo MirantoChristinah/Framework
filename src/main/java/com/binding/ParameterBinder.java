@@ -7,7 +7,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -29,9 +32,6 @@ public class ParameterBinder {
                                      HttpServletRequest request,
                                      HttpServletResponse response) throws BindingException {
 
-        // Chaque parametre : son TYPE (String, int, boolean...) et son NOM
-        // (le nom reel n'est disponible que si la classe a ete compilee
-        //  avec -parameters ; sinon on obtient arg0, arg1, arg2...)
         Parameter[] params = method.getParameters();
 
         Object[] arguments = new Object[params.length];
@@ -51,8 +51,9 @@ public class ParameterBinder {
 
             arguments[i] = valeur;                       // <- la valeur placee DANS l'argument
 
-            if (isSimpleType(type) && isNomJavaValide(nom)) {
-                resultat.add(nom, valeur);              // <- et mise dans la requete (pour la vue JSP)
+            if (isNomJavaValide(nom)
+                    && (isSimpleType(type) || !isInfrastructureType(type))) {
+                resultat.add(nom, valeur); // valeur simple ou objet disponible dans la JSP
             }
 
             System.out.println("[BINDING]   arg" + i + " -> " + type.getSimpleName()
@@ -81,14 +82,122 @@ public class ParameterBinder {
             return convertir(lireValeur(request, nomDeclare, nom, type), type, nom);
         }
 
-        // --- 3. Un objet metier : impossible pour le Sprint 7 ---
-        throw new BindingException(
-                "le parametre " + (index + 1) + " de la methode "
-                        + method.getName() + "() est de type OBJET ("
-                        + type.getName() + "). Le framework ne sait pas fabriquer cet objet : "
-                        + "le binding d'objet n'est pas encore implemente. "
-                        + "Utilise des parametres simples (String, int, boolean, ...) "
-                        + "ou HttpServletRequest / HttpServletResponse.");
+        // --- 3. Objet metier (POJO) : construction puis remplissage depuis le formulaire ---
+        return binderObjet(method, type, nomDeclare, nom, request);
+    }
+
+    private static Object binderObjet(Method method, Class<?> typeObjet,
+                                      String nomDeclare, String nomObjet,
+                                      HttpServletRequest request) throws BindingException {
+        if (typeObjet.isInterface() || Modifier.isAbstract(typeObjet.getModifiers())
+                || typeObjet.isArray() || typeObjet.isEnum()
+                || typeObjet.getName().startsWith("java.")
+                || typeObjet.getName().startsWith("jakarta.servlet.")) {
+            throw new BindingException("Impossible de binder automatiquement le type objet "
+                    + typeObjet.getName() + " pour " + method.getName()
+                    + "(). Utilise une classe metier concrete avec un constructeur sans argument.");
+        }
+
+        final Object instance;
+        try {
+            Constructor<?> constructeur = typeObjet.getDeclaredConstructor();
+            if (!constructeur.canAccess(null)) {
+                constructeur.setAccessible(true);
+            }
+            instance = constructeur.newInstance();
+        } catch (ReflectiveOperationException | SecurityException e) {
+            throw new BindingException("La classe " + typeObjet.getName()
+                    + " doit avoir un constructeur sans argument accessible.", e);
+        }
+
+        int champsLies = 0;
+        for (Field champ : tousLesChamps(typeObjet)) {
+            int mod = champ.getModifiers();
+            if (Modifier.isStatic(mod) || Modifier.isFinal(mod) || champ.isSynthetic()) {
+                continue;
+            }
+
+            Class<?> typeChamp = champ.getType();
+            if (!isSimpleType(typeChamp)) {
+                // Les objets imbriques et les collections ne sont pas encore lies recursivement.
+                continue;
+            }
+
+            String clePrefixee = (nomObjet != null && !nomObjet.isEmpty()
+                    && !estNomGenerique(nomDeclare))
+                    ? nomObjet + "." + champ.getName() : null;
+
+            String brut = null;
+            boolean champPresent = false;
+
+            if (clePrefixee != null) {
+                brut = request.getParameter(clePrefixee);
+                champPresent = brut != null;
+            }
+            if (!champPresent) {
+                brut = request.getParameter(champ.getName());
+                champPresent = brut != null;
+            }
+
+            // Ne pas ecraser la valeur par defaut de l'objet si le champ n'a pas ete envoye.
+            if (!champPresent) {
+                continue;
+            }
+
+            Object valeur = convertir(brut, typeChamp, champ.getName());
+            try {
+                Method setter = trouverSetter(typeObjet, champ);
+                if (setter != null) {
+                    if (!setter.canAccess(instance)) {
+                        setter.setAccessible(true);
+                    }
+                    setter.invoke(instance, valeur);
+                } else {
+                    if (!champ.canAccess(instance)) {
+                        champ.setAccessible(true);
+                    }
+                    champ.set(instance, valeur);
+                }
+                champsLies++;
+                System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
+                        + "." + champ.getName() + " = " + afficher(valeur));
+            } catch (ReflectiveOperationException | SecurityException e) {
+                throw new BindingException("Impossible d'affecter le champ '"
+                        + champ.getName() + "' de " + typeObjet.getSimpleName() + ".", e);
+            }
+        }
+
+        System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
+                + " construit (" + champsLies + " champ(s) lie(s))");
+        return instance;
+    }
+
+    private static java.util.List<Field> tousLesChamps(Class<?> type) {
+        java.util.List<Field> champs = new java.util.ArrayList<>();
+        for (Class<?> courant = type; courant != null && courant != Object.class;
+             courant = courant.getSuperclass()) {
+            for (Field champ : courant.getDeclaredFields()) {
+                champs.add(champ);
+            }
+        }
+        return champs;
+    }
+
+    private static Method trouverSetter(Class<?> typeObjet, Field champ) {
+        String nomSetter = "set" + Character.toUpperCase(champ.getName().charAt(0))
+                + champ.getName().substring(1);
+        for (Class<?> courant = typeObjet; courant != null && courant != Object.class;
+             courant = courant.getSuperclass()) {
+            try {
+                Method setter = courant.getDeclaredMethod(nomSetter, champ.getType());
+                if (!Modifier.isStatic(setter.getModifiers())) {
+                    return setter;
+                }
+            } catch (NoSuchMethodException ignored) {
+                // On continue dans la classe parente.
+            }
+        }
+        return null;
     }
 
     /** Lit la valeur brute dans la requete, avec les noms de repli si besoin. */
@@ -195,13 +304,22 @@ public class ParameterBinder {
 
     /** arg0, arg1, ... = le nom reel n'a pas ete conserve a la compilation. */
     private static boolean estNomGenerique(String nom) {
-        return nom.isEmpty() || nom.startsWith("arg") && nom.substring(3).chars().allMatch(Character::isDigit);
+        return nom == null || nom.isEmpty()
+                || nom.startsWith("arg")
+                && nom.substring(3).chars().allMatch(Character::isDigit);
     }
 
     private static String[] aliasParType(Class<?> type) {
         if (type == String.class) return new String[]{"nom", "name"};
         if (type == boolean.class || type == Boolean.class) return new String[]{"actif"};
         return VIDE;
+    }
+
+    private static boolean isInfrastructureType(Class<?> type) {
+        return type == HttpServletRequest.class
+                || type == HttpServletResponse.class
+                || type == HttpSession.class
+                || type == ServletContext.class;
     }
 
     private static boolean isNomJavaValide(String nom) {
@@ -217,7 +335,7 @@ public class ParameterBinder {
     // 5. OUTILS
     // =====================================================================
 
-    /** Un type est "simple" si le framework sait le fabriquer tout seul. */
+    // Un type est "simple" si le framework sait le fabriquer tout seul. */
     public static boolean isSimpleType(Class<?> type) {
         return type.isPrimitive()
                 || type == String.class
@@ -233,7 +351,14 @@ public class ParameterBinder {
                 || type == HttpServletRequest.class
                 || type == HttpServletResponse.class
                 || type == HttpSession.class
-                || type == ServletContext.class;
+                || type == ServletContext.class
+                || (!type.isPrimitive()
+                    && !type.isArray()
+                    && !type.isEnum()
+                    && !type.getName().startsWith("java.")
+                    && !type.getName().startsWith("jakarta.servlet.")
+                    && !type.isInterface()
+                    && !Modifier.isAbstract(type.getModifiers()));
     }
 
     /** Tout ce que la requete contient : permet de "verifier les parametres". */
