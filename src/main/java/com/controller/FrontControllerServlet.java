@@ -14,9 +14,11 @@ import java.util.Map;
 import com.ioc.ApplicationContext;
 import com.model.Mapping;
 import com.model.ModelView;
+import com.model.JsonResult;
 import com.model.UrlMethod;
 import com.utils.JsonConvertir;
-import com.annotation.JsonAnnotation;
+import com.binding.ParameterBinder;
+import com.binding.BindingResult;
 
 @WebServlet(name = "FrontController", urlPatterns = {"/"})
 public class FrontControllerServlet extends HttpServlet {
@@ -35,7 +37,7 @@ public class FrontControllerServlet extends HttpServlet {
             throw new ServletException("Le conteneur IoC n'a pas ete initialise au demarrage.");
         }
 
-        // Recuperation des vues (via getAttribute, pas getInitParameter)
+        // Recuperation des vues
         this.viewPrefix = (String) ctx.getAttribute("view-prefix");
         this.viewSuffix = (String) ctx.getAttribute("view-suffix");
 
@@ -70,30 +72,58 @@ public class FrontControllerServlet extends HttpServlet {
                 Mapping mapping = mappingUrls.get(urlMethod);
                 Class<?> controllerClass = Class.forName(mapping.getClassName());
 
-                // CLe : recupere l'instance depuis le CONTENEUR (SINGLETON)
-                // au lieu de newInstance() a chaque requete (PROTOTYPE)
+                // Recuperation du bean de controleur depuis le conteneur IoC
                 Object controller = appContext.getBean(controllerClass);
                 if (controller == null) {
                     throw new ServletException("Controller non trouve dans le conteneur : " + controllerClass.getName());
                 }
 
-                // Recuperation de la methode
+                // Trouve la methode dans la classe par son nom
                 String methodName = mapping.getMethod();
-                Method method = controllerClass.getDeclaredMethod(methodName);
+                Method method = chercherMethodeParNom(controllerClass, methodName);
 
-                // Invocation (le controller a deja ses @Autowired injectes)
-                Object result = method.invoke(controller);
+                if (method == null) {
+                    throw new ServletException("Methode non trouvee : " + methodName + " dans " + controllerClass.getName());
+                }
 
-                // WEB API
-                if (method.isAnnotationPresent(JsonAnnotation.class)
-                        || controllerClass.isAnnotationPresent(JsonAnnotation.class)) {
+                // Verification de l'accessibilite
+                if (!method.canAccess(controller)) {
+                    throw new ServletException("Acces a la methode refuse : " + controllerClass.getName() + "." + methodName);
+                }
+
+                // GESTION DES PARAMETRES ET BINDING 
+                Object result;
+                
+                if (method.getParameterCount() > 0) {
+                    // Si la methode a des parametres -> On invoque le ParameterBinder
+                    BindingResult binding = ParameterBinder.bind(method, request, response);
+
+                    // Les valeurs liees sont mises en attributs de requete pour les vues JSP
+                    if (binding != null && binding.getValues() != null) {
+                        for (Map.Entry<String, Object> e : binding.getValues().entrySet()) {
+                            request.setAttribute(e.getKey(), e.getValue());
+                        }
+                    }
+
+                    // Invocation avec le tableau d'arguments extrait par le binder
+                    Object[] args = (binding != null) ? binding.getArguments() : new Object[method.getParameterCount()];
+                    result = method.invoke(controller, args);
+
+                } else {
+                    // Aucun parametre -> invocation directe avec null / sans arguments
+                    result = method.invoke(controller);
+                }
+
+                // WEB API (JSON) : un JsonResult demande explicitement une reponse JSON.
+                // Aucune annotation n'est necessaire sur la methode ou le controleur.
+                if (result instanceof JsonResult) {
+                    JsonResult jsonResult = (JsonResult) result;
 
                     response.setContentType("application/json;charset=UTF-8");
 
                     try (PrintWriter out = response.getWriter()) {
-                        out.print(JsonConvertir.toJson(result));
+                        out.print(JsonConvertir.toJson(jsonResult.getData()));
                     }
-
                     return;
                 }
 
@@ -124,11 +154,21 @@ public class FrontControllerServlet extends HttpServlet {
             } catch (Exception e) {
                 throw new ServletException("Erreur lors de l'execution du controleur pour l'URL: " + url, e);
             }
-            
+
         } else {
             response.sendError(HttpServletResponse.SC_NOT_FOUND,
                     "Aucune route trouvee pour l'URL : " + url + " [" + reqMethod + "]");
         }
+    }
+
+    //Recherche une methode par son nom dans la classe sans se soucier du nombre ni du type de ses parametres.
+    private Method chercherMethodeParNom(Class<?> clazz, String methodName) {
+        for (Method m : clazz.getDeclaredMethods()) {
+            if (m.getName().equals(methodName)) {
+                return m;
+            }
+        }
+        return null;
     }
 
     @Override
