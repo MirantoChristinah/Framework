@@ -17,6 +17,7 @@ import com.model.ModelView;
 import com.model.JsonResult;
 import com.model.UrlMethod;
 import com.utils.JsonConvertir;
+import com.annotation.JsonAnnotation;
 import com.binding.ParameterBinder;
 import com.binding.BindingResult;
 
@@ -91,7 +92,7 @@ public class FrontControllerServlet extends HttpServlet {
                     throw new ServletException("Acces a la methode refuse : " + controllerClass.getName() + "." + methodName);
                 }
 
-                // GESTION DES PARAMETRES ET BINDING 
+                // --- GESTION DES PARAMETRES ET BINDING ---
                 Object result;
                 
                 if (method.getParameterCount() > 0) {
@@ -114,15 +115,24 @@ public class FrontControllerServlet extends HttpServlet {
                     result = method.invoke(controller);
                 }
 
-                // WEB API (JSON) : un JsonResult demande explicitement une reponse JSON.
-                // Aucune annotation n'est necessaire sur la methode ou le controleur.
+                // JSON explicite sans annotation : return new JsonResult(donnees)
                 if (result instanceof JsonResult) {
                     JsonResult jsonResult = (JsonResult) result;
+                    response.setContentType("application/json;charset=UTF-8");
+                    try (PrintWriter out = response.getWriter()) {
+                        out.print(JsonConvertir.toJson(jsonResult.getData()));
+                    }
+                    return;
+                }
+
+                // Compatibilite avec l'ancien fonctionnement base sur @JsonAnnotation
+                if (method.isAnnotationPresent(JsonAnnotation.class)
+                        || controllerClass.isAnnotationPresent(JsonAnnotation.class)) {
 
                     response.setContentType("application/json;charset=UTF-8");
 
                     try (PrintWriter out = response.getWriter()) {
-                        out.print(JsonConvertir.toJson(jsonResult.getData()));
+                        out.print(JsonConvertir.toJson(result));
                     }
                     return;
                 }
@@ -161,7 +171,7 @@ public class FrontControllerServlet extends HttpServlet {
         }
     }
 
-    //Recherche une methode par son nom dans la classe sans se soucier du nombre ni du type de ses parametres.
+    // Recherche une methode par son nom dans la classe sans se soucier du nombre ni du type de ses parametres.
     private Method chercherMethodeParNom(Class<?> clazz, String methodName) {
         for (Method m : clazz.getDeclaredMethods()) {
             if (m.getName().equals(methodName)) {
