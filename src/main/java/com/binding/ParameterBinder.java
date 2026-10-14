@@ -14,10 +14,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 
 public class ParameterBinder {
@@ -86,94 +83,217 @@ public class ParameterBinder {
         return binderObjet(method, type, nomDeclare, nom, request);
     }
 
+    // =====================================================================
+    // 2 bis. BINDING D'OBJET (recursif : Personne { String nom; Maison m; })
+    // =====================================================================
     private static Object binderObjet(Method method, Class<?> typeObjet,
                                       String nomDeclare, String nomObjet,
                                       HttpServletRequest request) throws BindingException {
-        if (typeObjet.isInterface() || Modifier.isAbstract(typeObjet.getModifiers())
-                || typeObjet.isArray() || typeObjet.isEnum()
-                || typeObjet.getName().startsWith("java.")
-                || typeObjet.getName().startsWith("jakarta.servlet.")) {
+        if (!estObjetMetier(typeObjet)) {
             throw new BindingException("Impossible de binder automatiquement le type objet "
                     + typeObjet.getName() + " pour " + method.getName()
                     + "(). Utilise une classe metier concrete avec un constructeur sans argument.");
         }
 
+        // Prefixes candidats : "personne." puis "" (repli sans prefixe)
+        List<String> prefixes = new ArrayList<>();
+        if (nomObjet != null && !nomObjet.isEmpty() && !estNomGenerique(nomDeclare)) {
+            prefixes.add(nomObjet + ".");
+        }
+        prefixes.add("");
+
+        // true = l'objet racine est toujours cree, meme si aucun champ n'est envoye
+        Object instance = construire(typeObjet, prefixes, request, new HashSet<>(), true);
+
+        System.out.println("[BINDING]   objet " + typeObjet.getSimpleName() + " construit");
+        return instance;
+    }
+
+    
+private static Object construire(
+        Class<?> type,
+        List<String> prefixes,
+        HttpServletRequest request,
+        Set<Class<?>> enCours,
+        boolean obligatoire
+) throws BindingException {
+
+    // Eviter les references circulaires
+    if (!enCours.add(type)) {
+        return null;
+    }
+
+    try {
         final Object instance;
+
+        // Construction de l'objet
         try {
-            Constructor<?> constructeur = typeObjet.getDeclaredConstructor();
+            Constructor<?> constructeur = type.getDeclaredConstructor();
+
             if (!constructeur.canAccess(null)) {
                 constructeur.setAccessible(true);
             }
+
             instance = constructeur.newInstance();
+
         } catch (ReflectiveOperationException | SecurityException e) {
-            throw new BindingException("La classe " + typeObjet.getName()
-                    + " doit avoir un constructeur sans argument accessible.", e);
+            throw new BindingException(
+                "La classe " + type.getName()
+                + " doit avoir un constructeur sans argument accessible.",
+                e
+            );
         }
 
         int champsLies = 0;
-        for (Field champ : tousLesChamps(typeObjet)) {
+
+        // Parcourir les champs de l'objet
+        for (Field champ : tousLesChamps(type)) {
+
             int mod = champ.getModifiers();
-            if (Modifier.isStatic(mod) || Modifier.isFinal(mod) || champ.isSynthetic()) {
+
+            if (Modifier.isStatic(mod)
+                    || Modifier.isFinal(mod)
+                    || champ.isSynthetic()) {
                 continue;
             }
 
             Class<?> typeChamp = champ.getType();
-            if (!isSimpleType(typeChamp)) {
-                // Les objets imbriques et les collections ne sont pas encore lies recursivement.
-                continue;
-            }
+            Object valeur;
 
-            String clePrefixee = (nomObjet != null && !nomObjet.isEmpty()
-                    && !estNomGenerique(nomDeclare))
-                    ? nomObjet + "." + champ.getName() : null;
+            // 1. Champ simple : String, int, boolean, etc.
+            if (isSimpleType(typeChamp)) {
 
-            String brut = null;
-            boolean champPresent = false;
+                String brut = null;
 
-            if (clePrefixee != null) {
-                brut = request.getParameter(clePrefixee);
-                champPresent = brut != null;
-            }
-            if (!champPresent) {
-                brut = request.getParameter(champ.getName());
-                champPresent = brut != null;
-            }
+                for (String prefixe : prefixes) {
+                    brut = request.getParameter(
+                        prefixe + champ.getName()
+                    );
 
-            // Ne pas ecraser la valeur par defaut de l'objet si le champ n'a pas ete envoye.
-            if (!champPresent) {
-                continue;
-            }
-
-            Object valeur = convertir(brut, typeChamp, champ.getName());
-            try {
-                Method setter = trouverSetter(typeObjet, champ);
-                if (setter != null) {
-                    if (!setter.canAccess(instance)) {
-                        setter.setAccessible(true);
+                    if (brut != null) {
+                        break;
                     }
-                    setter.invoke(instance, valeur);
-                } else {
-                    if (!champ.canAccess(instance)) {
-                        champ.setAccessible(true);
-                    }
-                    champ.set(instance, valeur);
                 }
-                champsLies++;
-                System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
-                        + "." + champ.getName() + " = " + afficher(valeur));
-            } catch (ReflectiveOperationException | SecurityException e) {
-                throw new BindingException("Impossible d'affecter le champ '"
-                        + champ.getName() + "' de " + typeObjet.getSimpleName() + ".", e);
+
+                // Garder la valeur existante si aucun paramètre n'est envoyé
+                if (brut == null) {
+                    continue;
+                }
+
+                valeur = convertir(
+                    brut,
+                    typeChamp,
+                    champ.getName()
+                );
+
+            // 2. Champ objet : Maison, Adresse, etc.
+            } else if (estObjetMetier(typeChamp)) {
+
+                List<String> sousPrefixes = new ArrayList<>();
+
+                // Priorité 1 : notation imbriquée, par exemple m.adresse
+                for (String prefixe : prefixes) {
+                    String sousPrefixe =
+                        prefixe + champ.getName() + ".";
+
+                    if (!sousPrefixes.contains(sousPrefixe)) {
+                        sousPrefixes.add(sousPrefixe);
+                    }
+                }
+
+                // Priorité 2 : notation simple, par exemple adresse
+                for (String prefixe : prefixes) {
+                    if (!sousPrefixes.contains(prefixe)) {
+                        sousPrefixes.add(prefixe);
+                    }
+                }
+
+                valeur = construire(
+                    typeChamp,
+                    sousPrefixes,
+                    request,
+                    enCours,
+                    false
+                );
+
+                // Aucun champ correspondant : laisser l'objet à null
+                if (valeur == null) {
+                    continue;
+                }
+
+            } else {
+                // Collections, tableaux et types non pris en charge
+                continue;
             }
+
+            // Affecter la valeur avec le setter ou directement le champ
+            affecter(type, instance, champ, valeur);
+
+            champsLies++;
+
+            System.out.println(
+                "[BINDING]   objet "
+                + type.getSimpleName()
+                + "."
+                + champ.getName()
+                + " = "
+                + afficher(valeur)
+            );
         }
 
-        System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
-                + " construit (" + champsLies + " champ(s) lie(s))");
+        System.out.println(
+            "[BINDING]   objet "
+            + type.getSimpleName()
+            + " ("
+            + champsLies
+            + " champ(s) lie(s))"
+        );
+
+        // Un objet imbriqué sans champ lié reste null
+        if (champsLies == 0 && !obligatoire) {
+            return null;
+        }
+
         return instance;
+
+    } finally {
+        // Toujours libérer le type, même en cas d'erreur
+        enCours.remove(type);
+    }
+}
+
+
+    private static void affecter(Class<?> type, Object instance, Field champ, Object valeur)
+            throws BindingException {
+        try {
+            Method setter = trouverSetter(type, champ);
+            if (setter != null) {
+                if (!setter.canAccess(instance)) {
+                    setter.setAccessible(true);
+                }
+                setter.invoke(instance, valeur);
+            } else {
+                if (!champ.canAccess(instance)) {
+                    champ.setAccessible(true);
+                }
+                champ.set(instance, valeur);
+            }
+        } catch (ReflectiveOperationException | SecurityException e) {
+            throw new BindingException("Impossible d'affecter le champ '"
+                    + champ.getName() + "' de " + type.getSimpleName() + ".", e);
+        }
     }
 
-    private static java.util.List<Field> tousLesChamps(Class<?> type) {
-        java.util.List<Field> champs = new java.util.ArrayList<>();
+    /** Classe concrete "metier" que le framework peut instancier. */
+    private static boolean estObjetMetier(Class<?> t) {
+        return !(t.isPrimitive() || t.isInterface() || t.isArray() || t.isEnum()
+                || Modifier.isAbstract(t.getModifiers())
+                || t.getName().startsWith("java.")
+                || t.getName().startsWith("jakarta.servlet."));
+    }
+
+    private static List<Field> tousLesChamps(Class<?> type) {
+        List<Field> champs = new ArrayList<>();
         for (Class<?> courant = type; courant != null && courant != Object.class;
              courant = courant.getSuperclass()) {
             for (Field champ : courant.getDeclaredFields()) {
@@ -335,7 +455,7 @@ public class ParameterBinder {
     // 5. OUTILS
     // =====================================================================
 
-    // Un type est "simple" si le framework sait le fabriquer tout seul. */
+    /** Un type est "simple" si le framework sait le fabriquer tout seul. */
     public static boolean isSimpleType(Class<?> type) {
         return type.isPrimitive()
                 || type == String.class

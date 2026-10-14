@@ -94,4 +94,7 @@ To do FrameWork :
         objectif : methode d'action ao Controller tsy makany view fa mamerina Json 
         -tsy manao request dispacher fa mamerina json 
     => manao fonction retourne json 
-    
+
+Sprint 8 : 
+    sauvegarder ao @ fichier ou base 
+    fichier properties chemin du sauvergarde , recuperer via controler 
