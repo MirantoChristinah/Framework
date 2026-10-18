@@ -3,6 +3,7 @@ package com.controller;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,6 +23,7 @@ import com.binding.ParameterBinder;
 import com.binding.BindingResult;
 
 @WebServlet(name = "FrontController", urlPatterns = {"/"})
+@MultipartConfig
 public class FrontControllerServlet extends HttpServlet {
 
     private String viewPrefix;

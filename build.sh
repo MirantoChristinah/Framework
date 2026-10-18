@@ -33,6 +33,12 @@ if [ $? -ne 0 ]; then
     echo "[ERREUR] Impossible de creer le fichier JAR."
     exit 1
 fi
+# Le fichier de configuration est une ressource du framework, pas une classe.
+jar -uf "$JAR_NAME" fichier.properties
+if [ $? -ne 0 ]; then
+    echo "[ERREUR] Impossible d'ajouter fichier.properties au JAR."
+    exit 1
+fi
 echo "[OK] Fichier $JAR_NAME cree avec succes."
 
 echo "[4/4] Deploiement vers le projet de test..."

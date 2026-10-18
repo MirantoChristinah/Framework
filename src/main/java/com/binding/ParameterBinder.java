@@ -6,6 +6,8 @@ import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.Part;
+import jakarta.servlet.ServletException;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -14,6 +16,10 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import com.model.MapFile;
 import java.util.*;
 
 
@@ -22,9 +28,7 @@ public class ParameterBinder {
     /** Noms de champs essayes quand le vrai nom du parametre est inconnu (arg0, arg1...). */
     private static final String[] VIDE = new String[0];
 
-    // =====================================================================
     // 1. POINT D'ENTREE : fabriquer le tableau d'arguments de Method.invoke
-    // =====================================================================
     public static BindingResult bind(Method method,
                                      HttpServletRequest request,
                                      HttpServletResponse response) throws BindingException {
@@ -60,21 +64,24 @@ public class ParameterBinder {
         return resultat;
     }
 
-    // =====================================================================
     // 2. UNE VALEUR = soit un objet de la requete, soit une valeur du formulaire
-    // =====================================================================
     private static Object resoudreValeur(Method method, int index, Class<?> type,
                                          String nomDeclare, String nom,
                                          HttpServletRequest request,
                                          HttpServletResponse response) throws BindingException {
 
-        // --- 4. Les objets fournis par le framework ---
+        // --- Objets fournis par le framework ---
         if (type == HttpServletRequest.class)  return request;
         if (type == HttpServletResponse.class) return response;
         if (type == HttpSession.class)        return request.getSession();
         if (type == ServletContext.class)     return request.getServletContext();
 
-        // --- 1. Les types simples : on lit le formulaire ---
+        // --- Upload : MapFile est un cas particulier, pas un POJO classique ---
+        if (type == MapFile.class) {
+            return binderMapFile(nom, nomDeclare, request);
+        }
+
+        // --- Types simples : on lit le formulaire ---
         if (isSimpleType(type)) {
             return convertir(lireValeur(request, nomDeclare, nom, type), type, nom);
         }
@@ -83,9 +90,105 @@ public class ParameterBinder {
         return binderObjet(method, type, nomDeclare, nom, request);
     }
 
-    // =====================================================================
+    // 2 bis. BINDING D'UN FICHIER UPLOADE VERS MapFile
+    private static MapFile binderMapFile(
+            String nomObjet,
+            String nomDeclare,
+            HttpServletRequest request
+    ) throws BindingException {
+        return binderMapFile(Collections.singletonList(nomObjet), nomDeclare, request);
+    }
+
+    private static MapFile binderMapFile(
+            List<String> nomsPossibles,
+            String nomDeclare,
+            HttpServletRequest request
+    ) throws BindingException {
+        try {
+            Part part = null;
+
+            // Priorite aux noms correspondant aux champs Java/HTML.
+            for (String nomPossible : nomsPossibles) {
+                if (nomPossible != null && !nomPossible.isEmpty()) {
+                    part = request.getPart(nomPossible);
+                    if (estPartFichierValide(part)) {
+                        break;
+                    }
+                }
+            }
+
+            // Un repli sur le premier fichier n'est autorise que si le nom
+            // du parametre n'a pas ete conserve a la compilation.
+            if (!estPartFichierValide(part)
+                    && estNomGenerique(nomDeclare)) {
+                for (Part candidate : request.getParts()) {
+                    if (estPartFichierValide(candidate)) {
+                        part = candidate;
+                        break;
+                    }
+                }
+            }
+
+            // Aucun fichier selectionne : autoriser le champ file optionnel.
+            if (part == null || part.getSize() == 0
+                    || part.getSubmittedFileName() == null
+                    || part.getSubmittedFileName().trim().isEmpty()) {
+                System.out.println("[BINDING]   aucun fichier choisi pour '" + nomDeclare + "'");
+                return null;
+            }
+
+            String nomOriginal = part.getSubmittedFileName().replace('\\', '/');
+            nomOriginal = nomOriginal.substring(nomOriginal.lastIndexOf('/') + 1);
+
+            if (nomOriginal.trim().isEmpty()) {
+                return null;
+            }
+
+            int point = nomOriginal.lastIndexOf('.');
+            String nom;
+            String extension;
+
+            // Les fichiers comme ".env" sont traites comme un nom sans extension.
+            if (point > 0 && point < nomOriginal.length() - 1) {
+                nom = nomOriginal.substring(0, point);
+                extension = nomOriginal.substring(point + 1).toLowerCase(Locale.ROOT);
+            } else {
+                nom = nomOriginal;
+                extension = "";
+            }
+
+            // Java 8 compatible; readAllBytes() n'est pas utilise.
+            byte[] bytes;
+            try (InputStream input = part.getInputStream();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int lus;
+                while ((lus = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, lus);
+                }
+                bytes = output.toByteArray();
+            }
+
+            MapFile fichier = new MapFile(nom, extension, bytes);
+            System.out.println("[BINDING]   fichier MapFile construit : "
+                    + nomOriginal + " (" + bytes.length + " octets)");
+            return fichier;
+
+        } catch (IOException | ServletException e) {
+            throw new BindingException(
+                    "Impossible de recuperer le fichier upload pour le parametre '"
+                            + nomDeclare + "'. Verifie la configuration multipart du servlet.", e);
+        }
+    }
+
+    private static boolean estPartFichierValide(Part part) {
+        return part != null
+                && part.getSize() > 0
+                && part.getSubmittedFileName() != null
+                && !part.getSubmittedFileName().trim().isEmpty();
+    }
+
     // 2 bis. BINDING D'OBJET (recursif : Personne { String nom; Maison m; })
-    // =====================================================================
     private static Object binderObjet(Method method, Class<?> typeObjet,
                                       String nomDeclare, String nomObjet,
                                       HttpServletRequest request) throws BindingException {
@@ -109,19 +212,19 @@ public class ParameterBinder {
         return instance;
     }
 
-    
-private static Object construire(
-        Class<?> type,
-        List<String> prefixes,
-        HttpServletRequest request,
-        Set<Class<?>> enCours,
-        boolean obligatoire
-) throws BindingException {
+        
+    private static Object construire(
+            Class<?> type,
+            List<String> prefixes,
+            HttpServletRequest request,
+            Set<Class<?>> enCours,
+            boolean obligatoire
+    ) throws BindingException {
 
-    // Eviter les references circulaires
-    if (!enCours.add(type)) {
-        return null;
-    }
+        // Eviter les references circulaires
+        if (!enCours.add(type)) {
+            return null;
+        }
 
     try {
         final Object instance;
@@ -160,8 +263,20 @@ private static Object construire(
             Class<?> typeChamp = champ.getType();
             Object valeur;
 
-            // 1. Champ simple : String, int, boolean, etc.
-            if (isSimpleType(typeChamp)) {
+            // 1. Champ fichier : le champ HTML represente le fichier complet.
+            if (typeChamp == MapFile.class) {
+                List<String> nomsFichier = new ArrayList<>();
+                for (String prefixe : prefixes) {
+                    nomsFichier.add(prefixe + champ.getName());
+                }
+                valeur = binderMapFile(nomsFichier, champ.getName(), request);
+
+                if (valeur == null) {
+                    continue;
+                }
+
+            // 2. Champ simple : String, int, boolean, etc.
+            } else if (isSimpleType(typeChamp)) {
 
                 String brut = null;
 
@@ -186,7 +301,7 @@ private static Object construire(
                     champ.getName()
                 );
 
-            // 2. Champ objet : Maison, Adresse, etc.
+            // 3. Champ objet : Maison, Adresse, etc.
             } else if (estObjetMetier(typeChamp)) {
 
                 List<String> sousPrefixes = new ArrayList<>();
@@ -340,9 +455,7 @@ private static Object construire(
         return null;
     }
 
-    // =====================================================================
     // 3. CONVERSION  String  ->  type du parametre
-    // =====================================================================
     private static Object convertir(String brut, Class<?> type, String nom) throws BindingException {
         boolean absent = (brut == null);
 
@@ -414,11 +527,10 @@ private static Object construire(
         throw new BindingException("type primitif non gere : " + type.getName());
     }
 
-    // =====================================================================
     // 4. NOM DU PARAMETRE  (le nom du champ du formulaire)
-    // =====================================================================
     private static String nomParametre(String nomDeclare, Class<?> type) {
         if (nomDeclare != null && !estNomGenerique(nomDeclare)) return nomDeclare;
+        if (type == MapFile.class) return "fichier";
         return type.getSimpleName().toLowerCase(Locale.ROOT); // repli : nom du type
     }
 
@@ -451,9 +563,7 @@ private static Object construire(
         return true;
     }
 
-    // =====================================================================
     // 5. OUTILS
-    // =====================================================================
 
     /** Un type est "simple" si le framework sait le fabriquer tout seul. */
     public static boolean isSimpleType(Class<?> type) {

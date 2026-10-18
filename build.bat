@@ -39,6 +39,12 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
+jar -uf %JAR_NAME% fichier.properties
+if %errorlevel% neq 0 (
+    echo [ERREUR] Impossible d'ajouter fichier.properties au JAR.
+    pause
+    exit /b 1
+)
 echo [OK] Fichier %JAR_NAME% cree avec succes.
 echo.
 
