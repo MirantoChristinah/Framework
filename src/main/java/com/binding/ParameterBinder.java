@@ -6,6 +6,8 @@ import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.Part;
+import jakarta.servlet.ServletException;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -14,10 +16,11 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.LinkedHashSet;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import com.model.MapFile;
+import java.util.*;
 
 
 public class ParameterBinder {
@@ -25,9 +28,7 @@ public class ParameterBinder {
     /** Noms de champs essayes quand le vrai nom du parametre est inconnu (arg0, arg1...). */
     private static final String[] VIDE = new String[0];
 
-    // =====================================================================
     // 1. POINT D'ENTREE : fabriquer le tableau d'arguments de Method.invoke
-    // =====================================================================
     public static BindingResult bind(Method method,
                                      HttpServletRequest request,
                                      HttpServletResponse response) throws BindingException {
@@ -63,21 +64,24 @@ public class ParameterBinder {
         return resultat;
     }
 
-    // =====================================================================
     // 2. UNE VALEUR = soit un objet de la requete, soit une valeur du formulaire
-    // =====================================================================
     private static Object resoudreValeur(Method method, int index, Class<?> type,
                                          String nomDeclare, String nom,
                                          HttpServletRequest request,
                                          HttpServletResponse response) throws BindingException {
 
-        // --- 4. Les objets fournis par le framework ---
+        // --- Objets fournis par le framework ---
         if (type == HttpServletRequest.class)  return request;
         if (type == HttpServletResponse.class) return response;
         if (type == HttpSession.class)        return request.getSession();
         if (type == ServletContext.class)     return request.getServletContext();
 
-        // --- 1. Les types simples : on lit le formulaire ---
+        // --- Upload : MapFile est un cas particulier, pas un POJO classique ---
+        if (type == MapFile.class) {
+            return binderMapFile(nom, nomDeclare, request);
+        }
+
+        // --- Types simples : on lit le formulaire ---
         if (isSimpleType(type)) {
             return convertir(lireValeur(request, nomDeclare, nom, type), type, nom);
         }
@@ -86,94 +90,325 @@ public class ParameterBinder {
         return binderObjet(method, type, nomDeclare, nom, request);
     }
 
+    // 2 bis. BINDING D'UN FICHIER UPLOADE VERS MapFile
+    private static MapFile binderMapFile(
+            String nomObjet,
+            String nomDeclare,
+            HttpServletRequest request
+    ) throws BindingException {
+        return binderMapFile(Collections.singletonList(nomObjet), nomDeclare, request);
+    }
+
+    private static MapFile binderMapFile(
+            List<String> nomsPossibles,
+            String nomDeclare,
+            HttpServletRequest request
+    ) throws BindingException {
+        try {
+            Part part = null;
+
+            // Priorite aux noms correspondant aux champs Java/HTML.
+            for (String nomPossible : nomsPossibles) {
+                if (nomPossible != null && !nomPossible.isEmpty()) {
+                    part = request.getPart(nomPossible);
+                    if (estPartFichierValide(part)) {
+                        break;
+                    }
+                }
+            }
+
+            // Un repli sur le premier fichier n'est autorise que si le nom
+            // du parametre n'a pas ete conserve a la compilation.
+            if (!estPartFichierValide(part)
+                    && estNomGenerique(nomDeclare)) {
+                for (Part candidate : request.getParts()) {
+                    if (estPartFichierValide(candidate)) {
+                        part = candidate;
+                        break;
+                    }
+                }
+            }
+
+            // Aucun fichier selectionne : autoriser le champ file optionnel.
+            if (part == null || part.getSize() == 0
+                    || part.getSubmittedFileName() == null
+                    || part.getSubmittedFileName().trim().isEmpty()) {
+                System.out.println("[BINDING]   aucun fichier choisi pour '" + nomDeclare + "'");
+                return null;
+            }
+
+            String nomOriginal = part.getSubmittedFileName().replace('\\', '/');
+            nomOriginal = nomOriginal.substring(nomOriginal.lastIndexOf('/') + 1);
+
+            if (nomOriginal.trim().isEmpty()) {
+                return null;
+            }
+
+            int point = nomOriginal.lastIndexOf('.');
+            String nom;
+            String extension;
+
+            // Les fichiers comme ".env" sont traites comme un nom sans extension.
+            if (point > 0 && point < nomOriginal.length() - 1) {
+                nom = nomOriginal.substring(0, point);
+                extension = nomOriginal.substring(point + 1).toLowerCase(Locale.ROOT);
+            } else {
+                nom = nomOriginal;
+                extension = "";
+            }
+
+            // Java 8 compatible; readAllBytes() n'est pas utilise.
+            byte[] bytes;
+            try (InputStream input = part.getInputStream();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int lus;
+                while ((lus = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, lus);
+                }
+                bytes = output.toByteArray();
+            }
+
+            MapFile fichier = new MapFile(nom, extension, bytes);
+            System.out.println("[BINDING]   fichier MapFile construit : "
+                    + nomOriginal + " (" + bytes.length + " octets)");
+            return fichier;
+
+        } catch (IOException | ServletException e) {
+            throw new BindingException(
+                    "Impossible de recuperer le fichier upload pour le parametre '"
+                            + nomDeclare + "'. Verifie la configuration multipart du servlet.", e);
+        }
+    }
+
+    private static boolean estPartFichierValide(Part part) {
+        return part != null
+                && part.getSize() > 0
+                && part.getSubmittedFileName() != null
+                && !part.getSubmittedFileName().trim().isEmpty();
+    }
+
+    // 2 bis. BINDING D'OBJET (recursif : Personne { String nom; Maison m; })
     private static Object binderObjet(Method method, Class<?> typeObjet,
                                       String nomDeclare, String nomObjet,
                                       HttpServletRequest request) throws BindingException {
-        if (typeObjet.isInterface() || Modifier.isAbstract(typeObjet.getModifiers())
-                || typeObjet.isArray() || typeObjet.isEnum()
-                || typeObjet.getName().startsWith("java.")
-                || typeObjet.getName().startsWith("jakarta.servlet.")) {
+        if (!estObjetMetier(typeObjet)) {
             throw new BindingException("Impossible de binder automatiquement le type objet "
                     + typeObjet.getName() + " pour " + method.getName()
                     + "(). Utilise une classe metier concrete avec un constructeur sans argument.");
         }
 
+        // Prefixes candidats : "personne." puis "" (repli sans prefixe)
+        List<String> prefixes = new ArrayList<>();
+        if (nomObjet != null && !nomObjet.isEmpty() && !estNomGenerique(nomDeclare)) {
+            prefixes.add(nomObjet + ".");
+        }
+        prefixes.add("");
+
+        // true = l'objet racine est toujours cree, meme si aucun champ n'est envoye
+        Object instance = construire(typeObjet, prefixes, request, new HashSet<>(), true);
+
+        System.out.println("[BINDING]   objet " + typeObjet.getSimpleName() + " construit");
+        return instance;
+    }
+
+        
+    private static Object construire(
+            Class<?> type,
+            List<String> prefixes,
+            HttpServletRequest request,
+            Set<Class<?>> enCours,
+            boolean obligatoire
+    ) throws BindingException {
+
+        // Eviter les references circulaires
+        if (!enCours.add(type)) {
+            return null;
+        }
+
+    try {
         final Object instance;
+
+        // Construction de l'objet
         try {
-            Constructor<?> constructeur = typeObjet.getDeclaredConstructor();
+            Constructor<?> constructeur = type.getDeclaredConstructor();
+
             if (!constructeur.canAccess(null)) {
                 constructeur.setAccessible(true);
             }
+
             instance = constructeur.newInstance();
+
         } catch (ReflectiveOperationException | SecurityException e) {
-            throw new BindingException("La classe " + typeObjet.getName()
-                    + " doit avoir un constructeur sans argument accessible.", e);
+            throw new BindingException(
+                "La classe " + type.getName()
+                + " doit avoir un constructeur sans argument accessible.",
+                e
+            );
         }
 
         int champsLies = 0;
-        for (Field champ : tousLesChamps(typeObjet)) {
+
+        // Parcourir les champs de l'objet
+        for (Field champ : tousLesChamps(type)) {
+
             int mod = champ.getModifiers();
-            if (Modifier.isStatic(mod) || Modifier.isFinal(mod) || champ.isSynthetic()) {
+
+            if (Modifier.isStatic(mod)
+                    || Modifier.isFinal(mod)
+                    || champ.isSynthetic()) {
                 continue;
             }
 
             Class<?> typeChamp = champ.getType();
-            if (!isSimpleType(typeChamp)) {
-                // Les objets imbriques et les collections ne sont pas encore lies recursivement.
-                continue;
-            }
+            Object valeur;
 
-            String clePrefixee = (nomObjet != null && !nomObjet.isEmpty()
-                    && !estNomGenerique(nomDeclare))
-                    ? nomObjet + "." + champ.getName() : null;
-
-            String brut = null;
-            boolean champPresent = false;
-
-            if (clePrefixee != null) {
-                brut = request.getParameter(clePrefixee);
-                champPresent = brut != null;
-            }
-            if (!champPresent) {
-                brut = request.getParameter(champ.getName());
-                champPresent = brut != null;
-            }
-
-            // Ne pas ecraser la valeur par defaut de l'objet si le champ n'a pas ete envoye.
-            if (!champPresent) {
-                continue;
-            }
-
-            Object valeur = convertir(brut, typeChamp, champ.getName());
-            try {
-                Method setter = trouverSetter(typeObjet, champ);
-                if (setter != null) {
-                    if (!setter.canAccess(instance)) {
-                        setter.setAccessible(true);
-                    }
-                    setter.invoke(instance, valeur);
-                } else {
-                    if (!champ.canAccess(instance)) {
-                        champ.setAccessible(true);
-                    }
-                    champ.set(instance, valeur);
+            // 1. Champ fichier : le champ HTML represente le fichier complet.
+            if (typeChamp == MapFile.class) {
+                List<String> nomsFichier = new ArrayList<>();
+                for (String prefixe : prefixes) {
+                    nomsFichier.add(prefixe + champ.getName());
                 }
-                champsLies++;
-                System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
-                        + "." + champ.getName() + " = " + afficher(valeur));
-            } catch (ReflectiveOperationException | SecurityException e) {
-                throw new BindingException("Impossible d'affecter le champ '"
-                        + champ.getName() + "' de " + typeObjet.getSimpleName() + ".", e);
+                valeur = binderMapFile(nomsFichier, champ.getName(), request);
+
+                if (valeur == null) {
+                    continue;
+                }
+
+            // 2. Champ simple : String, int, boolean, etc.
+            } else if (isSimpleType(typeChamp)) {
+
+                String brut = null;
+
+                for (String prefixe : prefixes) {
+                    brut = request.getParameter(
+                        prefixe + champ.getName()
+                    );
+
+                    if (brut != null) {
+                        break;
+                    }
+                }
+
+                // Garder la valeur existante si aucun paramètre n'est envoyé
+                if (brut == null) {
+                    continue;
+                }
+
+                valeur = convertir(
+                    brut,
+                    typeChamp,
+                    champ.getName()
+                );
+
+            // 3. Champ objet : Maison, Adresse, etc.
+            } else if (estObjetMetier(typeChamp)) {
+
+                List<String> sousPrefixes = new ArrayList<>();
+
+                // Priorité 1 : notation imbriquée, par exemple m.adresse
+                for (String prefixe : prefixes) {
+                    String sousPrefixe =
+                        prefixe + champ.getName() + ".";
+
+                    if (!sousPrefixes.contains(sousPrefixe)) {
+                        sousPrefixes.add(sousPrefixe);
+                    }
+                }
+
+                // Priorité 2 : notation simple, par exemple adresse
+                for (String prefixe : prefixes) {
+                    if (!sousPrefixes.contains(prefixe)) {
+                        sousPrefixes.add(prefixe);
+                    }
+                }
+
+                valeur = construire(
+                    typeChamp,
+                    sousPrefixes,
+                    request,
+                    enCours,
+                    false
+                );
+
+                // Aucun champ correspondant : laisser l'objet à null
+                if (valeur == null) {
+                    continue;
+                }
+
+            } else {
+                // Collections, tableaux et types non pris en charge
+                continue;
             }
+
+            // Affecter la valeur avec le setter ou directement le champ
+            affecter(type, instance, champ, valeur);
+
+            champsLies++;
+
+            System.out.println(
+                "[BINDING]   objet "
+                + type.getSimpleName()
+                + "."
+                + champ.getName()
+                + " = "
+                + afficher(valeur)
+            );
         }
 
-        System.out.println("[BINDING]   objet " + typeObjet.getSimpleName()
-                + " construit (" + champsLies + " champ(s) lie(s))");
+        System.out.println(
+            "[BINDING]   objet "
+            + type.getSimpleName()
+            + " ("
+            + champsLies
+            + " champ(s) lie(s))"
+        );
+
+        // Un objet imbriqué sans champ lié reste null
+        if (champsLies == 0 && !obligatoire) {
+            return null;
+        }
+
         return instance;
+
+    } finally {
+        // Toujours libérer le type, même en cas d'erreur
+        enCours.remove(type);
+    }
+}
+
+
+    private static void affecter(Class<?> type, Object instance, Field champ, Object valeur)
+            throws BindingException {
+        try {
+            Method setter = trouverSetter(type, champ);
+            if (setter != null) {
+                if (!setter.canAccess(instance)) {
+                    setter.setAccessible(true);
+                }
+                setter.invoke(instance, valeur);
+            } else {
+                if (!champ.canAccess(instance)) {
+                    champ.setAccessible(true);
+                }
+                champ.set(instance, valeur);
+            }
+        } catch (ReflectiveOperationException | SecurityException e) {
+            throw new BindingException("Impossible d'affecter le champ '"
+                    + champ.getName() + "' de " + type.getSimpleName() + ".", e);
+        }
     }
 
-    private static java.util.List<Field> tousLesChamps(Class<?> type) {
-        java.util.List<Field> champs = new java.util.ArrayList<>();
+    /** Classe concrete "metier" que le framework peut instancier. */
+    private static boolean estObjetMetier(Class<?> t) {
+        return !(t.isPrimitive() || t.isInterface() || t.isArray() || t.isEnum()
+                || Modifier.isAbstract(t.getModifiers())
+                || t.getName().startsWith("java.")
+                || t.getName().startsWith("jakarta.servlet."));
+    }
+
+    private static List<Field> tousLesChamps(Class<?> type) {
+        List<Field> champs = new ArrayList<>();
         for (Class<?> courant = type; courant != null && courant != Object.class;
              courant = courant.getSuperclass()) {
             for (Field champ : courant.getDeclaredFields()) {
@@ -220,9 +455,7 @@ public class ParameterBinder {
         return null;
     }
 
-    // =====================================================================
     // 3. CONVERSION  String  ->  type du parametre
-    // =====================================================================
     private static Object convertir(String brut, Class<?> type, String nom) throws BindingException {
         boolean absent = (brut == null);
 
@@ -294,11 +527,10 @@ public class ParameterBinder {
         throw new BindingException("type primitif non gere : " + type.getName());
     }
 
-    // =====================================================================
     // 4. NOM DU PARAMETRE  (le nom du champ du formulaire)
-    // =====================================================================
     private static String nomParametre(String nomDeclare, Class<?> type) {
         if (nomDeclare != null && !estNomGenerique(nomDeclare)) return nomDeclare;
+        if (type == MapFile.class) return "fichier";
         return type.getSimpleName().toLowerCase(Locale.ROOT); // repli : nom du type
     }
 
@@ -331,11 +563,9 @@ public class ParameterBinder {
         return true;
     }
 
-    // =====================================================================
     // 5. OUTILS
-    // =====================================================================
 
-    // Un type est "simple" si le framework sait le fabriquer tout seul. */
+    /** Un type est "simple" si le framework sait le fabriquer tout seul. */
     public static boolean isSimpleType(Class<?> type) {
         return type.isPrimitive()
                 || type == String.class
