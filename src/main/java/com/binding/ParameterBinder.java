@@ -20,7 +20,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import com.model.MapFile;
-import model.Session;
 import java.util.*;
 
 
@@ -76,8 +75,6 @@ public class ParameterBinder {
         if (type == HttpServletResponse.class) return response;
         if (type == HttpSession.class)        return request.getSession();
         if (type == ServletContext.class)     return request.getServletContext();
-        // Session est injectee par le FrontControllerServlet, pas construite comme POJO.
-        if (type == Session.class)             return null;
 
         // --- Upload : MapFile est un cas particulier, pas un POJO classique ---
         if (type == MapFile.class) {
@@ -554,8 +551,7 @@ public class ParameterBinder {
         return type == HttpServletRequest.class
                 || type == HttpServletResponse.class
                 || type == HttpSession.class
-                || type == ServletContext.class
-                || type == Session.class;
+                || type == ServletContext.class;
     }
 
     private static boolean isNomJavaValide(String nom) {
@@ -586,7 +582,6 @@ public class ParameterBinder {
                 || type == HttpServletResponse.class
                 || type == HttpSession.class
                 || type == ServletContext.class
-                || type == Session.class
                 || (!type.isPrimitive()
                     && !type.isArray()
                     && !type.isEnum()
