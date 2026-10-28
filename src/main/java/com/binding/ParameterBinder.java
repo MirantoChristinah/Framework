@@ -19,7 +19,7 @@ import java.math.BigInteger;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import com.model.MapFile;
+import com.model.*;
 import java.util.*;
 
 
@@ -75,6 +75,12 @@ public class ParameterBinder {
         if (type == HttpServletResponse.class) return response;
         if (type == HttpSession.class)        return request.getSession();
         if (type == ServletContext.class)     return request.getServletContext();
+        // MySession est un objet d'infrastructure construit pour cette requete.
+        if (type == MySession.class) {
+            MySession session = new MySession();
+            session.chargerDepuis(request.getSession());
+            return session;
+        }
 
         // --- Upload : MapFile est un cas particulier, pas un POJO classique ---
         if (type == MapFile.class) {
@@ -551,7 +557,8 @@ public class ParameterBinder {
         return type == HttpServletRequest.class
                 || type == HttpServletResponse.class
                 || type == HttpSession.class
-                || type == ServletContext.class;
+                || type == ServletContext.class
+                || type == MySession.class;
     }
 
     private static boolean isNomJavaValide(String nom) {
@@ -582,6 +589,7 @@ public class ParameterBinder {
                 || type == HttpServletResponse.class
                 || type == HttpSession.class
                 || type == ServletContext.class
+                || type == MySession.class
                 || (!type.isPrimitive()
                     && !type.isArray()
                     && !type.isEnum()
