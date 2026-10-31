@@ -6,38 +6,58 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.util.Map;
 
-import com.ioc.ApplicationContext;
-import com.model.*;
-import com.utils.JsonConvertir;
+import com.annotation.Authentification;
 import com.annotation.JsonAnnotation;
-import com.binding.ParameterBinder;
 import com.binding.BindingResult;
-
+import com.binding.ParameterBinder;
+import com.ioc.ApplicationContext;
+import com.model.Mapping;
+import com.model.ModelView;
+import com.model.UrlMethod;
+import com.utils.JsonConvertir;
+import com.model.MySession;
 
 @WebServlet(name = "FrontController", urlPatterns = {"/"})
 public class FrontControllerServlet extends HttpServlet {
 
     private String viewPrefix;
     private String viewSuffix;
+    private String sessionAuthAttribute;
     private ApplicationContext appContext;
 
     @Override
     public void init() throws ServletException {
         ServletContext ctx = getServletContext();
+
         this.appContext = (ApplicationContext) ctx.getAttribute("appContext");
         if (this.appContext == null) {
             throw new ServletException("Le conteneur IoC n'a pas ete initialise au demarrage.");
         }
+
         this.viewPrefix = (String) ctx.getAttribute("view-prefix");
         this.viewSuffix = (String) ctx.getAttribute("view-suffix");
         if (viewPrefix == null) viewPrefix = "/WEB-INF/Views/";
         if (viewSuffix == null) viewSuffix = ".jsp";
+
+        // Le nom de l'attribut d'authentification vient de web.xml.
+        this.sessionAuthAttribute = getServletConfig().getInitParameter("sessionAuthAttribute");
+        if (sessionAuthAttribute == null || sessionAuthAttribute.trim().isEmpty()) {
+            throw new ServletException(
+                    "Le parametre init-param 'sessionAuthAttribute' doit etre configure dans web.xml.");
+        }
+        this.sessionAuthAttribute = sessionAuthAttribute.trim();
+
+        // Disponible aussi pour les autres composants de l'application si necessaire.
+        ctx.setAttribute("sessionAuthAttribute", this.sessionAuthAttribute);
+
+        getServletContext().log("[AUTH] Attribut de session configure : " + this.sessionAuthAttribute);
     }
 
     protected void processRequest(HttpServletRequest request, HttpServletResponse response)
@@ -69,7 +89,6 @@ public class FrontControllerServlet extends HttpServlet {
             Mapping mapping = mappingUrls.get(urlMethod);
             Class<?> controllerClass = Class.forName(mapping.getClassName());
 
-            // Le controleur est recupere du ServletContext par nom de classe.
             Object controller = obtenirControleur(controllerClass);
             if (controller == null) {
                 throw new ServletException("Controller non trouve dans le conteneur : " + controllerClass.getName());
@@ -82,6 +101,13 @@ public class FrontControllerServlet extends HttpServlet {
             }
             if (!method.canAccess(controller)) {
                 throw new ServletException("Acces a la methode refuse : " + controllerClass.getName() + "." + methodName);
+            }
+
+            if (method.isAnnotationPresent(Authentification.class)
+                    && !estAuthentifie(request)) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+                        "Authentification requise pour acceder a : " + url);
+                return;
             }
 
             Object result;
@@ -139,7 +165,21 @@ public class FrontControllerServlet extends HttpServlet {
         }
     }
 
+    /**
+     * Une session existante doit contenir une valeur non nulle sous le nom
+     * configure dans web.xml. getSession(false) evite de creer une session
+     * pour une personne qui n'est pas encore connectee.
+     */
+    private boolean estAuthentifie(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return false;
+        }
+        Object utilisateur = session.getAttribute(sessionAuthAttribute);
+        return utilisateur != null;
+    }
 
+    /** Conserve une instance de controleur dans le ServletContext. */
     private Object obtenirControleur(Class<?> controllerClass) {
         ServletContext contexte = getServletContext();
         String cle = "controller:" + controllerClass.getName();
